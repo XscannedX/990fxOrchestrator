@@ -23,12 +23,12 @@ without any kernel workaround (`pci=realloc`, `pci=nocrs`, etc.).
 
 **Validated hardware stack:**
 
-| Slot           | Device                                | BAR size | Location     |
-|----------------|---------------------------------------|----------|--------------|
-| PCIe x16 #1    | NVIDIA Tesla P100 (16 GB HBM2)        | 16 GB    | 0x800000000  |
-| PCIe x16 #2    | NVIDIA Tesla P100 (16 GB HBM2)        | 16 GB    | 0x1000000000 |
-| PCIe riser x1  | Intel Arc A770 (16 GB GDDR6)          | 16 GB    | 0x1800000000 |
-| PCIe x4        | AMD FirePro W9170 (32 GB GDDR5)       | 16 GB    | 0x1C00000000 |
+| Slot           | Device                                | BAR size          | Location     |
+|----------------|---------------------------------------|-------------------|--------------|
+| PCIe x16 #1    | NVIDIA Tesla P100 (16 GB HBM2)        | 16 GB             | 0x800000000  |
+| PCIe x16 #2    | NVIDIA Tesla P100 (16 GB HBM2)        | 16 GB             | 0x1000000000 |
+| PCIe riser x1  | Intel Arc A770 (16 GB GDDR6)          | 16 GB             | 0x1800000000 |
+| PCIe x4        | AMD FirePro W9170 (32 GB GDDR5)       | 256 MB(for now)   | 0x1C00000000 |
 
 Bench result (post-flash, Linux 6.17, stock kernel): `lspci -vvv` shows four
 64-bit prefetchable 16 GB regions above 4 GB, all devices bind their drivers
