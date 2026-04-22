@@ -1,6 +1,6 @@
 # 990fxOrchestrator
 
-A UEFI DXE driver that enables **Resizable BAR** and **MMIO64 placement** on
+A UEFI DXE driver that enables **4g Deconding**,**Resizable BAR** and **MMIO64 placement** on
 firmware and platforms that never supported *Above 4G Decoding* — specifically
 the **Gigabyte GA-990FX-Gaming Rev 1.0** (AMD SR5690 + SP5100, AMI Aptio IV)
 with AMD FX (Family 15h) CPUs, running the official **Rev 1.1 BIOS** as the
