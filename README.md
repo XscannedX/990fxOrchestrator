@@ -292,7 +292,7 @@ cd edk2
 .\build_990fxo.bat
 ```
 
-Build artifacts land in `edk2\Build\ReBarUEFI\RELEASE_VS2022\X64\`:
+Build artifacts land in `edk2\Build\yourfolder\RELEASE_VS2022\X64\`:
 
 - `990fxOrchestrator.efi` — the raw PE32 driver.
 - `990fxOrchestrator.ffs` — the FFS-wrapped version, ready for MMTool
