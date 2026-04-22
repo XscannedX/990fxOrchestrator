@@ -1,0 +1,43 @@
+[Defines]
+  INF_VERSION                    = 1.25
+  BASE_NAME                      = 990fxOrchestrator
+  FILE_GUID                      = adf0508f-a992-4a0f-8b54-0291517c21aa
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = rebarInit
+
+[Sources]
+  990fxOrchestrator.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  UefiLib
+  IoLib
+
+[Guids]
+  gEfiAcpi20TableGuid          ## SOMETIMES_CONSUMES
+  gEfiAcpi10TableGuid          ## SOMETIMES_CONSUMES
+  gEfiEventReadyToBootGuid     ## SOMETIMES_CONSUMES
+
+[Protocols]
+  gEfiPciRootBridgeIoProtocolGuid ## SOMETIMES_CONSUMES
+  gEfiPciHostBridgeResourceAllocationProtocolGuid ## SOMETIMES_CONSUMES
+
+[Depex]
+  gEfiPciRootBridgeIoProtocolGuid
+
+[BuildOptions]
+  GCC:*_*_*_CC_FLAGS        = -flto -DUSING_LTO -Wextra -Wno-unused-parameter
+  GCC:*_*_*_DLINK_FLAGS     = -flto
+  GCC:*_CLANGPDB_*_CC_FLAGS = -Weverything -Wno-documentation -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-reserved-macro-identifier -Wno-gnu-zero-variadic-macro-arguments -Wno-padded -Wno-reserved-identifier -Wno-strict-prototypes -Wno-documentation-pedantic -Wno-unused-macros
+  MSFT:*_*_*_CC_FLAGS       = /GL /DUSING_LTO /analyze /W4
+  MSFT:*_*_*_DLINK_FLAGS    = /LTCG /NOCOFFGRPINFO /BASE:0x180000000
+  GCC:RELEASE_*_*_CC_FLAGS   = -DMDEPKG_NDEBUG
+  INTEL:RELEASE_*_*_CC_FLAGS = /D MDEPKG_NDEBUG
+  MSFT:RELEASE_*_*_CC_FLAGS  = /D MDEPKG_NDEBUG

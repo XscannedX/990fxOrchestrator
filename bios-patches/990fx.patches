@@ -1,0 +1,264 @@
+# =============================================================================
+# 990fxOrchestrator — Gigabyte GA-990FX-Gaming static BIOS hex patches
+# =============================================================================
+#
+# Format: GUID section_type P:ORIGINAL:REPLACEMENT
+# Apply with: UEFIPatch.exe <bios_image> 990fx.patches
+#
+# WARNING: Do NOT flash the output of UEFIPatch directly on AMI Aptio IV
+# images. UEFIPatch can corrupt pad files when it rewrites modules. Always
+# use MMTool 4.50.0.23 for the final module replacement step on this board.
+# See ../docs/FLASHING.md for the safe workflow.
+#
+# -----------------------------------------------------------------------------
+# Structure of this file
+# -----------------------------------------------------------------------------
+# This file is organised by binary ground truth, not by theoretical
+# intent:
+#
+#   BLOCK 1 — PATCHES APPLIED IN FTP39.F2
+#     The production set actually present in the validated image.
+#     Every patch here was verified by dumping the target FFS PE32 body
+#     and confirming that:
+#         ORIGINAL bytes count = 0   AND   REPLACEMENT bytes count >= 1
+#     These patches, together with the 990fxOrchestrator DXE module,
+#     produce the validated 4-GPU x 16 GB BAR configuration.
+#
+#   BLOCK 2 — PATCHES TESTED (historical, not in FTP39.F2)
+#     Hex patches from earlier iterations of this work. All GUIDs and
+#     byte patterns are the real ones used during testing. On FTP39
+#     none of these match: either the offensive patches in Block 1 have
+#     rewritten the targeted region (pattern drift) or the approach was
+#     abandoned in favour of a different one. Kept commented out so
+#     UEFIPatch will not attempt to apply them by default.
+#
+#     They are retained for porters who:
+#       - Start from a different / older AMI image where the offensive
+#         set has not yet been applied.
+#       - Want to bisect which exact change is necessary on a new BIOS.
+#       - Research the evolution of the patch set.
+#
+# -----------------------------------------------------------------------------
+# GUID reference (verified against multiple stock and patched BIOS dumps)
+# -----------------------------------------------------------------------------
+# 80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910  PciRootBridge
+# 3C1DE39F-D207-408A-AACC-731CFB7F1DD7  PciBus
+# 9F3A0016-AE55-4288-829D-D22FD344C347  AmiBoardInfo
+# 6950AFFF-6EE3-11DD-AD8B-0800200C9A66  AmdAgesaDxeDriver
+# A062CF1F-8473-4AA3-8793-600BC4FFE9A8  CSMCORE
+#
+# -----------------------------------------------------------------------------
+# Risk note — AGESA
+# -----------------------------------------------------------------------------
+# AGESA MODIFICATIONS ARE INHERENTLY HIGH-RISK. They directly alter the
+# module that initializes memory training and CPU/chipset glue. If any of
+# the AGESA hex patterns match at a location different from the one they
+# were derived for (e.g. on a neighbouring BIOS revision where the
+# disassembly has shifted by a few bytes), the result is likely a
+# cold-boot brick with no POST and no debug LED. Always confirm, with
+# UEFIPatch in diagnostic mode, that each AGESA block matches exactly ONE
+# site in your BIOS before flashing. Zero matches means the pattern
+# drifted; multiple matches means the pattern is not unique and you are
+# patching unintended code.
+#
+# =============================================================================
+
+
+# =============================================================================
+# BLOCK 1 — PATCHES APPLIED IN FTP39.F2
+# =============================================================================
+# 14 patches, all binary-verified present. Apply as-is to a clean vendor
+# image; every pattern must match exactly once.
+
+
+# -----------------------------------------------------------------------------
+# 1.1  PciRootBridge (80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910)  — 7 patches
+# -----------------------------------------------------------------------------
+
+# Raise MMIO limit 16 GB -> 512 GB
+# Replaces the hard-coded 0x3_FFFFFFFF (16 GB - 1) upper-bound constant
+# with 0x7F_FFFFFFFF (512 GB - 1). Enables the allocator to even consider
+# placing BARs above the 16 GB line.
+80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910 10 P:48B8FFFFFFFF030000004C3BC0:48B8FFFFFFFF7F0000004C3BC0
+
+# Fix 64-bit BAR enumeration bug
+# Stock code discarded a valid 64-bit BAR when its lower DWORD read as 0x0
+# (a legitimate case for aligned BAR3 on NVIDIA 16 GB cards). Patch NOPs
+# the conditional jump-out so the upper DWORD is still consulted.
+80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910 10 P:4883E0F048894424700F842EFFFFFF:4883E0F04889442470909090909090
+
+# Force 64-bit capability flags for all ports (Port 0 fix)
+# Neutralizes a CMOVcc that was conditionally clearing the 64-bit cap bit.
+80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910 10 P:0F44C1498BCC:488BC1498BCC
+
+# Force 64-bit Prefetchable on all Root Bridges
+# Replaces a conditional jump + BTR on the pref64-disable bit with an
+# unconditional OR that sets bits 0x00000070 (pref64 enable + 64-bit decode).
+80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910 10 P:7409480FBAAFC00000000F:818FC00000007F00070090
+
+# Force 64-bit encoding for all bridges (check 1)
+# NOPs out a test-and-branch that was falling through to the 32-bit path.
+80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910 10 P:48A96300010074054D8BCD:48A96300010090904D8BCD
+
+# Force 64-bit Prefetchable encoding for all bridges (check 2)
+# Same pattern as above, on a second redundant check further down the function.
+80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910 10 P:48A91C000600740D4D8BCD:48A91C00060090904D8BCD
+
+# Slot 3 prefetchable window 1 MB -> 512 GB
+# Expands an internal size constant used when sizing Slot 3's prefetchable
+# MMIO window, matching the 512 GB top set by the first patch in this block.
+80E66E0A-CCD1-43FA-A7B1-2D5EE0F13910 10 P:FE3FFFFF00000000:FFFFFFFFFFFF0000
+
+
+# -----------------------------------------------------------------------------
+# 1.2  PciBus (3C1DE39F-D207-408A-AACC-731CFB7F1DD7)  — 4 patches
+# -----------------------------------------------------------------------------
+
+# Force Above 4G Decoding — Location 1
+# NOPs a branch that, when a BDS menu flag is 0, skips the above-4G
+# allocation path. With the NOPs the above-4G path is always taken.
+3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:803DC53D0000007410488B8360090000:803DC53D0000009090488B8360090000
+
+# Force Above 4G Decoding — Location 2
+# Same pattern on a second call site in PciBus.
+3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:803DEA3C00000074484883BB6009000000:803DEA3C00000090904883BB6009000000
+
+# Force 64-bit Prefetchable Memory Allocation on PCI bridges
+# Changes a hardcoded 0x04 (pref32 attribute) to 0x06 (pref64 attribute)
+# in the resource descriptor the allocator pushes for every bridge.
+3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:488BB42480000000C644243804488B542438:488BB42480000000C644243806488B542438
+
+# Force PMem64 (0x6) for BAR allocation
+# Second forcing of the attribute byte in a different PciBus entry point.
+3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:48897020C6400804C6400908B818000000:48897020C6400806C6400908B818000000
+
+
+# -----------------------------------------------------------------------------
+# 1.3  AmdAgesaDxeDriver (6950AFFF-6EE3-11DD-AD8B-0800200C9A66)  — 3 patches
+# -----------------------------------------------------------------------------
+# See risk note in the header. All three verified present in FTP39.F2.
+
+# AGESA Patch 14 — remove ">= 4 GB" early-exit (JNC -> NOP NOP)
+# SHORT PATTERN (2 bytes): on FTP39 the replacement 9090 matches twice —
+# one occurrence is this patch, the other is an unrelated alignment NOP.
+# Use only against the AGESA FFS and confirm a single original-pattern
+# match before applying on any new revision.
+6950AFFF-6EE3-11DD-AD8B-0800200C9A66 10 P:735E:9090
+
+# AGESA Patch 15 — remove 16 GB MMIO limit (JNZ -> NOP NOP)
+# Inside the MMIO allocator, a test that bailed out when the requested
+# region crossed the 16 GB boundary.
+6950AFFF-6EE3-11DD-AD8B-0800200C9A66 10 P:488503752C:4885039090
+
+# AGESA Patch 16/17 — raise MMIO base constant 1 -> 0x40 (256 GB)
+# The 64-bit immediate 0x0000_0000_0000_0001 inside a `mov rax, imm64`
+# instruction is replaced with 0x0000_0000_0000_0040. The constant is
+# re-used three times in the AGESA MMIO allocator (hence replacement
+# count = 3 in FTP39). Combined with Patch 15, it gives the allocator
+# the upper region used for GPU BAR placement.
+6950AFFF-6EE3-11DD-AD8B-0800200C9A66 10 P:48B80000000001000000:48B80000000040000000
+
+
+# -----------------------------------------------------------------------------
+# 1.4  AmiBoardInfo (9F3A0016-AE55-4288-829D-D22FD344C347)  — 1 patch
+# -----------------------------------------------------------------------------
+
+# AGESA descriptor flag tweak (0x808A2B -> 0x008A2B)
+# Single-byte change inside the static ACPI resource descriptor table.
+# Clears the flag byte on the 64-bit descriptor so the runtime DSDT MALH
+# patch the module performs at boot is effective on the descriptor
+# consumed by the OS. On FTP39 this one patch structurally replaces the
+# two historical AmiBoardInfo patches listed in Block 2 (QWORD-max unlock
+# and second-descriptor wake), whose original patterns no longer match
+# because this change rewrote the flag byte they depended on.
+9F3A0016-AE55-4288-829D-D22FD344C347 10 P:00000080FFFFFFFFFFFFFFFF000000808A2B:00000080FFFFFFFFFFFFFFFF000000008A2B
+
+
+# =============================================================================
+# BLOCK 2 — PATCHES TESTED (historical, NOT present in FTP39.F2)
+# =============================================================================
+# Each entry below is kept with the exact GUID and byte pattern used when
+# it was tested. On FTP39 neither the ORIGINAL nor the REPLACEMENT bytes
+# of any of these patches can be found in the relevant FFS body — they
+# are documented here for reference only. All are commented out so
+# UEFIPatch will not attempt to apply them.
+#
+# DO NOT un-comment these on an FTP39-derived image.
+
+
+# -----------------------------------------------------------------------------
+# 2.1  PciBus — raise 16 GB limit (mirror of PciRootBridge 1.1 inside PciBus)
+# -----------------------------------------------------------------------------
+# Tested approach on earlier images. On FTP39 the offensive patches in
+# 1.2 have rewritten the surrounding code so this pattern no longer
+# matches. Structurally redundant with 1.1 on the current image.
+# 3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:B8FFFFFFFF030000004C3B:B8FFFFFFFF7F0000004C3B
+
+# -----------------------------------------------------------------------------
+# 2.2  PciBus — neutralize 64->32 bit downgrade (double-check site)
+# -----------------------------------------------------------------------------
+# Stock PciBus had a defensive check that, if a resource request touched
+# BAR layout 6 or 7 (pref64 variants), replaced it with 4/5 (pref32). On
+# FTP39 the downgrade path has been re-routed by the "Force PMem64"
+# patches in 1.2, so this ladder is no longer present with its original
+# bytes.
+# 3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:833E067506C70604000000833E077506C70605000000:66906690669066906690669066906690669066906690
+
+# -----------------------------------------------------------------------------
+# 2.3  PciBus — neutralize 64->32 bit downgrade (single-check site)
+# -----------------------------------------------------------------------------
+# Second call site for the same downgrade check. Same note as 2.2.
+# 3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:C70605000000833E067506C70604000000BE01000000:909090909090833E067506909090909090BE01000000
+
+# -----------------------------------------------------------------------------
+# 2.4  PciBus — "d4 Lobotomia" (EFI_OUT_OF_RESOURCES -> 0)
+# -----------------------------------------------------------------------------
+# Early experiment to suppress the d4 POST-code allocation-failure path
+# by rewriting the literal 0x80000000_00000009 (EFI_OUT_OF_RESOURCES)
+# compared against the status code into 0. Removed from the production
+# set: the current approach solves the underlying allocation failure
+# (with Block 1 + the 990fxOrchestrator Link Disable pre-scan) rather
+# than hiding the error code after the fact, which is more robust.
+# 3C1DE39F-D207-408A-AACC-731CFB7F1DD7 10 P:48B90900000000000080:48B90000000000000000
+
+# -----------------------------------------------------------------------------
+# 2.5  CSMCORE — unlock Legacy/CSM allocation mask (0x03 -> 0x7F)
+# -----------------------------------------------------------------------------
+# Tested on earlier images to align the CSM code path with the Force-
+# 64-bit changes. With CSM disabled (required for the production stack —
+# see FLASHING.md) this patch has no runtime effect; on FTP39 it is not
+# applied. The GUID is the real CSMCORE FFS GUID as verified by the
+# FTP26.F2 / FTP39.F2 GUID tables.
+# A062CF1F-8473-4AA3-8793-600BC4FFE9A8 10 P:FFFFFFFF03000000:FFFFFFFF7F000000
+
+# -----------------------------------------------------------------------------
+# 2.6  AmiBoardInfo — unlock QWORD descriptor 4 GB -> 16 EB
+# -----------------------------------------------------------------------------
+# Superseded on FTP39 by the AGESA descriptor flag tweak in 1.4, which
+# rewrites the flag byte this pattern anchored on.
+# 9F3A0016-AE55-4288-829D-D22FD344C347 10 P:00000080FFFFFFFF00000000000000808A2B00000C03:00000080FFFFFFFFFFFFFFFF000000808A2B00000C03
+
+# -----------------------------------------------------------------------------
+# 2.7  AmiBoardInfo — wake up native 64-bit descriptor
+# -----------------------------------------------------------------------------
+# Structural rewrite of a zeroed-out second descriptor slot. Superseded
+# on FTP39 by 1.4 plus the runtime DSDT MALH patch the module performs
+# at boot.
+# 9F3A0016-AE55-4288-829D-D22FD344C347 10 P:00000080FFFFFFFF00000000000000008A2B00000C030000000000000000000000000000000000000000000000000000000000000000:00000080FFFFFFFF00000000000000808A2B00000C0300000000000000000000000001000000FFFFFFFFFFFFFFFF00000000000000000000000000000000
+
+
+# =============================================================================
+# End of patches file.
+#
+# Typical workflow:
+#   1. Start from a clean, known-good BIOS image (e.g. stock vendor image).
+#   2. Apply this file with UEFIPatch for DIAGNOSTICS / inspection only:
+#        UEFIPatch.exe <image.bin> 990fx.patches
+#      Confirm every pattern matched exactly once.
+#   3. Use MMTool 4.50.0.23 to replace the 990fxOrchestrator FFS module
+#      inside the ORIGINAL image (not the UEFIPatch output!).
+#   4. Re-run UEFIPatch on the MMTool output to apply the static patches.
+#      Pad files inside the newly-replaced FFS slot are safe at this stage.
+#   5. Flash with Efiflash (DOS) or AsProgrammer/flashrom (SPI hardware).
+#
+# See ../docs/FLASHING.md for the full step-by-step.
