@@ -245,6 +245,19 @@ Execution sequence:
 // Requires a populated SPEAKER header on the motherboard (GA-990FX-Gaming: 4-pin SPK_1).
 #define ENABLE_BEEP_MELODY      1
 
+// =====================================================================
+// BARE-METAL BUSY-WAIT (safe inside EVT_SIGNAL_EXIT_BOOT_SERVICES)
+// =====================================================================
+// gBS->Stall() MUST NOT be called after ExitBootServices — the boot
+// services table is no longer valid.  Use this macro instead; it is
+// calibrated against the existing POST 0xFC delay: 200,000,000 iterations
+// ≈ 2 seconds on this FX-based platform (conservative, timing is
+// approximate and CPU-speed-dependent).
+#define BUSY_WAIT_MS(ms)  do { \
+    volatile UINT64 _bw; \
+    for (_bw = 0; _bw < (UINT64)(ms) * 100000ULL; _bw++) {} \
+} while (0)
+
 #define PCI_POSSIBLE_ERROR(val) ((val) == 0xffffffff)
 #define PCI_VENDOR_ID_ATI 0x1002
 #define BUILD_YEAR 2012
@@ -613,14 +626,17 @@ UINT16 pciFindExtCapability(UINTN pciAddress, INTN cap)
 INTN pciRebarFindPos(UINTN pciAddress, INTN pos, UINT8 bar)
 {
     UINTN nbars, i;
-    UINT32 ctrl;
+    UINT32 ctrl = 0;
 
-    pciReadConfigDword(pciAddress, pos + PCI_REBAR_CTRL, &ctrl);
+    if (EFI_ERROR(pciReadConfigDword(pciAddress, pos + PCI_REBAR_CTRL, &ctrl)))
+        return -1;
     nbars = (ctrl & PCI_REBAR_CTRL_NBAR_MASK) >> PCI_REBAR_CTRL_NBAR_SHIFT;
 
     for (i = 0; i < nbars; i++, pos += 8) {
         UINTN bar_idx;
-        pciReadConfigDword(pciAddress, pos + PCI_REBAR_CTRL, &ctrl);
+        ctrl = 0;
+        if (EFI_ERROR(pciReadConfigDword(pciAddress, pos + PCI_REBAR_CTRL, &ctrl)))
+            continue;
         bar_idx = ctrl & PCI_REBAR_CTRL_BAR_IDX;
         if (bar_idx == bar)
             return pos;
@@ -631,12 +647,13 @@ INTN pciRebarFindPos(UINTN pciAddress, INTN pos, UINT8 bar)
 UINT32 pciRebarGetPossibleSizes(UINTN pciAddress, UINTN epos, UINT16 vid, UINT16 did, UINT8 bar)
 {
     INTN pos;
-    UINT32 cap;
+    UINT32 cap = 0;
 
     pos = pciRebarFindPos(pciAddress, (INTN)epos, bar);
     if (pos < 0) return 0;
 
-    pciReadConfigDword(pciAddress, pos + PCI_REBAR_CAP, &cap);
+    if (EFI_ERROR(pciReadConfigDword(pciAddress, pos + PCI_REBAR_CAP, &cap)))
+        return 0;
     cap &= PCI_REBAR_CAP_SIZES;
 
     if (vid == PCI_VENDOR_ID_ATI && did == 0x731f &&
@@ -649,12 +666,13 @@ UINT32 pciRebarGetPossibleSizes(UINTN pciAddress, UINTN epos, UINT16 vid, UINT16
 INTN pciRebarSetSize(UINTN pciAddress, UINTN epos, UINT8 bar, UINT8 size)
 {
     INTN pos;
-    UINT32 ctrl;
+    UINT32 ctrl = 0;
 
     pos = pciRebarFindPos(pciAddress, (INTN)epos, bar);
     if (pos < 0) return pos;
 
-    pciReadConfigDword(pciAddress, pos + PCI_REBAR_CTRL, &ctrl);
+    if (EFI_ERROR(pciReadConfigDword(pciAddress, pos + PCI_REBAR_CTRL, &ctrl)))
+        return -1;
     ctrl &= (UINT32)~PCI_REBAR_CTRL_BAR_SIZE;
     ctrl |= (UINT32)size << PCI_REBAR_CTRL_BAR_SHIFT;
 
@@ -1391,8 +1409,9 @@ static UINT16 pciFindExtCapEcam(
 {
     UINT16 offset = 0x100;  // Extended cap list starts at 0x100
     UINT32 header;
+    UINTN  ttl = (0x1000 - 0x100) / 8;  // max cap entries in extended space
 
-    while (offset != 0 && offset < 0x1000) {
+    while (offset != 0 && offset < 0x1000 && ttl-- > 0) {
         if (EFI_ERROR(pciReadDwordEcam(rbIo, bus, dev, func, offset, &header)))
             return 0;
         if (header == 0 || header == 0xFFFFFFFF)
@@ -1506,8 +1525,8 @@ static VOID ResizeIntelGpuBars(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo)
 
                 DEBUG((DEBUG_INFO,
                     "ReBarDXE: Intel GPU %02x:%02x.0 (DID=%04x) "
-                    "ReBAR @ 0x%x — chain from root port 00:%02x.0\n",
-                    bus, d, (UINT16)(dVidDid >> 16), rebarOff, rootDev));
+                    "ReBAR @ 0x%x — chain from root port 00:%02x.%x\n",
+                    bus, d, (UINT16)(dVidDid >> 16), rebarOff, rootDev, rootFunc));
 
                 // Number of resizable BARs (bits [7:5] of the first ctrl)
                 if (EFI_ERROR(pciReadDwordEcam(rbIo, bus, d, 0,
@@ -1670,9 +1689,9 @@ static VOID ResizeIntelGpuBars(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo)
                         pciWriteWord(rbIo, rpAddr + 0x04, &cmd);
                     }
                     DEBUG((DEBUG_INFO,
-                        "ReBarDXE: Root 00:%02x.0 pref -> "
+                        "ReBarDXE: Root 00:%02x.%x pref -> "
                         "0x%lx - 0x%lx (64-bit)\n",
-                        rootDev, prefStart, prefEnd - 1));
+                        rootDev, rootFunc, prefStart, prefEnd - 1));
 
                     // 4b. Intermediate bridges (bus rpSecBus .. gpuBus-1)
                     // Scan every bus in the interval for bridges
@@ -1884,9 +1903,9 @@ static VOID V9BeepOff(VOID)
 static VOID V9Beep(UINT16 hz, UINTN ms)
 {
     V9BeepOn(hz);
-    if (gBS != NULL) gBS->Stall((UINTN)ms * 1000);
+    BUSY_WAIT_MS(ms);        // gBS->Stall invalid here (post-ExitBootServices)
     V9BeepOff();
-    if (gBS != NULL) gBS->Stall(80 * 1000);       // gap between beeps
+    BUSY_WAIT_MS(80);        // inter-beep gap
 }
 
 // Melody "V" (morse "V" = · · · —, here inverted to 2·2—2·):
@@ -1898,9 +1917,9 @@ static VOID V9PlayFcMelody(VOID)
     UINT8 orig61 = IoRead8(0x61);
 
     V9Beep(880, 120); V9Beep(880, 120);           // .. short
-    if (gBS != NULL) gBS->Stall(150 * 1000);
+    BUSY_WAIT_MS(150);
     V9Beep(880, 400); V9Beep(880, 400);           // -- long
-    if (gBS != NULL) gBS->Stall(150 * 1000);
+    BUSY_WAIT_MS(150);
     V9Beep(880, 120); V9Beep(880, 120);           // .. short
 
     IoWrite8(0x61, orig61);                        // restore upper bits
@@ -2507,9 +2526,12 @@ static BOOLEAN ProgramCpuMmioWindow(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo, BOOLE
     }
 
     // Read DRAM Limit to find where RAM ends
+    // NOTE: offsets >= 0x100 must be accessed via pciAddrOffset() so that
+    // EFI_PCI_ADDRESS encodes the extended bits correctly instead of
+    // overflowing into the function-number field of the address.
     if (EFI_ERROR(pciReadDword(rbIo, cpuNbAddr + DRAM_LIMIT_LOW_0, &dramLimitLow)))
         return FALSE;
-    if (EFI_ERROR(pciReadDword(rbIo, cpuNbAddr + DRAM_LIMIT_HIGH_0, &dramLimitHigh)))
+    if (EFI_ERROR(pciReadDword(rbIo, pciAddrOffset(cpuNbAddr, DRAM_LIMIT_HIGH_0), &dramLimitHigh)))
         return FALSE;
 
     // DRAM Limit format: bits[31:21] = DramLimit[31:21]
@@ -2558,9 +2580,12 @@ static BOOLEAN ProgramCpuMmioWindow(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo, BOOLE
         baseHigh, baseLow, limitHigh, limitLow));
 
     // WRITE: high registers first, then low (atomic activation)
-    if (EFI_ERROR(pciWriteDword(rbIo, cpuNbAddr + MMIO_BASE_HIGH_1, &baseHigh)))
+    // Offsets 0x188 and 0x18C are >= 0x100 — must use pciAddrOffset() so
+    // EFI_PCI_ADDRESS encodes the extended bits instead of overflowing into
+    // the PCI function-number field.
+    if (EFI_ERROR(pciWriteDword(rbIo, pciAddrOffset(cpuNbAddr, MMIO_BASE_HIGH_1), &baseHigh)))
         return FALSE;
-    if (EFI_ERROR(pciWriteDword(rbIo, cpuNbAddr + MMIO_LIMIT_HIGH_1, &limitHigh)))
+    if (EFI_ERROR(pciWriteDword(rbIo, pciAddrOffset(cpuNbAddr, MMIO_LIMIT_HIGH_1), &limitHigh)))
         return FALSE;
     if (EFI_ERROR(pciWriteDword(rbIo, cpuNbAddr + MMIO_LIMIT_LOW_1, &limitLow)))
         return FALSE;
@@ -2651,8 +2676,14 @@ VOID reBarSetupDevice(EFI_HANDLE handle, EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL_PCI_ADD
     UINTN epos;
     UINT16 vid, did;
     UINTN pciAddress;
+    EFI_STATUS hpStatus;
 
-    gBS->HandleProtocol(handle, &gEfiPciRootBridgeIoProtocolGuid, (void**)&pciRootBridgeIo);
+    hpStatus = gBS->HandleProtocol(handle, &gEfiPciRootBridgeIoProtocolGuid, (void**)&pciRootBridgeIo);
+    if (EFI_ERROR(hpStatus) || pciRootBridgeIo == NULL) {
+        DEBUG((DEBUG_WARN,
+            "ReBarDXE: reBarSetupDevice HandleProtocol failed: %r\n", hpStatus));
+        return;
+    }
 
     pciAddress = EFI_PCI_ADDRESS(addrInfo.Bus, addrInfo.Device, addrInfo.Function, 0);
     pciReadConfigWord(pciAddress, 0, &vid);
