@@ -429,6 +429,47 @@ why" are in [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md).
 
 ---
 
+Compatibility Analysis: ASUS SABERTOOTH 990FX R2.0
+The module was built specifically for the Gigabyte GA-990FX-Gaming Rev 1.1. Here is a feature-by-feature breakdown for the SABERTOOTH.
+
+✅ Compatible — no changes needed
+Feature	Why it works
+CPU NB D18F1 MMIO Window (D18F1x88/8C/188/18C)	These registers live in the AMD FX CPU die (Family 15h, D18:F1), not in any chipset. Identical silicon on both boards.
+HT Host Bridge gate (B0:D0.0 reg 0x94)	Expects VID=0x1002 at B0:D0.0 — correct for the AMD 990FX NB on both boards. Only the VID is checked, not the DID.
+PCIe bridge quirk whitelist (DIDs 0x5A16, 0x5A1C, 0x43A3)	0x5A16/0x5A1C are AMD 990FX NB PCIe bridge DIDs; 0x43A3 is the SB900/SB950 root port DID. The SB950 on the SABERTOOTH uses the same DID 0x43A3 — it's register-compatible with the SB900.
+Bus-agnostic GPU discovery (v9.4+)	ResizeAmdGpuBars and ResizeIntelGpuBars scan all root ports on bus 0, all devices 0–31, all functions 0–7. They don't care which physical slot the GPU is in.
+Pre-scan link disable / restore	Pure generic PCIe mechanism (PCIe Link Control register, upstream bridge discovery). Works on any AMD 990FX board.
+POST codes (port 0x80)	Standard on every PC with AMI/ASUS BIOS.
+Diagnostic beep (port 0x61)	Standard PC speaker timer circuit.
+EFI variable log (ReBarBootLog)	Standard UEFI runtime services, board-independent.
+ECAM base 0xE0000000	AMD 990FX platform standard, set by AGESA. Same on both boards.
+❌ Will fail — board-specific Gigabyte dependency
+Feature	Why it breaks on the SABERTOOTH
+DSDT MALH patch (PatchDsdtMalh)	The code searches the DSDT for the AML byte sequence 08 4D 41 4C 48 00 (Name(MALH, Zero)) — a Gigabyte-specific DSDT object that controls whether a QWordMemory descriptor (CRS1) is exposed to the OS. The ASUS BIOS DSDT does not have this object. The patch silently fails (returns FALSE), logs [D1] DSDT pattern not found, and the module continues.
+M2MX BIOS hex patch	The 256 GB ACPI resource window (0x0 – 0x3FFFFFFFFF) that the above MALH object activates is itself injected by a Gigabyte-specific BIOS hex patch (PatchM2MX.txt v2). None of this exists in the ASUS BIOS.
+Consequence of these two failures: The hardware registers get programmed correctly (CPU NB MMIO Window, HT gate, bridge pref-64 windows), but the ACPI PCIe root bridge _CRS resource descriptor in the ASUS BIOS DSDT will only advertise a small 32-bit MMIO window. Linux reads _CRS to learn what address space is available to the PCIe fabric. If _CRS stops at 4 GB (or a few hundred MB above it), Linux will refuse to allocate BARs in the 0x8–0x40 GB range that the module programs, and the above-4GB GPUs will either be unclaimed (BAR 0: can't assign mem) or regress to 32-bit mode.
+
+⚠️ Workaround path on the SABERTOOTH
+You can make the rest of the module work by compensating for the missing DSDT patch at the kernel command line:
+
+Code
+pci=realloc pci=realloc_size=256G
+or more specifically:
+
+Code
+pci=realloc,nocrs
+nocrs tells Linux to ignore _CRS entirely and size PCI resources from scratch. Combined with the hardware programming this module does, Linux will then be free to assign the full 64-bit BAR space.
+
+Alternatively, you could replace pci=nocrs with a custom DSDT override (using GRUB_EARLY_INITRD_LINUX_CUSTOM and an override DSDT). This is the proper long-term fix: create an ASUS-DSDT-compatible override that declares a QWordMemory window from just above RAM up to 256 GB.
+
+Summary
+Layer	Compatibility
+Hardware register programming (CPU NB, HT, bridges)	✅ Fully compatible
+GPU BAR resizing (ReBAR, ECAM)	✅ Fully compatible
+Device hide/restore (link disable)	✅ Fully compatible
+DSDT / ACPI resource advertisement	❌ Requires workaround (pci=realloc,nocrs or custom DSDT)
+The module will load, run, and program all the hardware correctly on the SABERTOOTH. The one thing it won't do is update the ACPI resource tables (because it relies on Gigabyte-specific BIOS structures for that). You will need pci=realloc,nocrs (or a custom DSDT) on your kernel command line to allow Linux to actually use the 64-bit BAR addresses the module assigns.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
