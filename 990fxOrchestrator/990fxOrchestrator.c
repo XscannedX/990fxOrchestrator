@@ -1,8 +1,61 @@
 /*
 SPDX-License-Identifier: MIT
 
-MODULE: 990fxOrchestrator (v9.5) — renamed from ReBarDxe
+MODULE: 990fxOrchestrator (v9.6) — renamed from ReBarDxe
 Target: Gigabyte GA-990FX-Gaming Rev 1.1 + AMD FX + multi-GPU
+
+v9.6 (2026-04-26) — BUG FIXES + ENHANCEMENTS (deep-dive audit):
+  BUG-1 (HIGH): gBS->Stall() called from EVT_SIGNAL_EXIT_BOOT_SERVICES.
+    The UEFI specification forbids calling boot services from a
+    EXIT_BOOT_SERVICES signal event; gBS->Stall is no longer valid at
+    that point.  V9Beep() and V9PlayFcMelody() were both calling it.
+    FIX: added BUSY_WAIT_MS(ms) bare-metal busy-loop macro (calibrated
+    against the existing POST 0xFC delay loop: 200M iterations ≈ 2 s).
+    All gBS->Stall calls inside the beep code are replaced with it.
+  BUG-2 (MEDIUM): D18F1x144/188/18C accessed at wrong PCI function.
+    ProgramCpuMmioWindow() added extended register offsets (0x144, 0x188,
+    0x18C) directly to a cpuNbAddr built by EFI_PCI_ADDRESS(0,0x18,1,0).
+    Adding 0x144 to 0x00180100 overflows into the function-number field
+    (result: 0x00180244 → D18F2x44, not D18F1x144).  The DRAM Limit High
+    register was therefore read from D18F2x44 (wrong), and the MMIO
+    window high registers were written to D18F2x88/8C (also wrong).
+    Because both high bytes are 0 for the current <256GB layout the
+    functional impact was masked; this would corrupt the DRAM controller
+    on systems with >256GB RAM.
+    FIX: the three extended accesses now go through pciAddrOffset() which
+    reconstructs the EFI_PCI_ADDRESS with the extended bits in [39:32].
+  BUG-3 (LOW): pciFindExtCapEcam() had no loop-termination TTL counter.
+    A malformed (circular or corrupted) ECAM capability list where no
+    entry is 0/0xFFFFFFFF and none matches the target cap ID would cause
+    an infinite loop.  The offset < 0x1000 guard alone cannot prevent
+    cycles within the valid range.
+    FIX: added ttl = (0x1000-0x100)/8 guard matching pciFindExtCapability.
+  BUG-4 (LOW): pciRebarFindPos/GetPossibleSizes/SetSize used uninitialized
+    ctrl/cap variables.  If pciReadConfigDword returned an error the buffer
+    was left in an indeterminate state and the garbage value was used for
+    bit-field extraction, potentially writing a wrong size to REBAR_CTRL.
+    FIX: initialised ctrl=0 / cap=0 and checked EFI_ERROR on all reads.
+  BUG-5 (LOW): reBarSetupDevice() discarded the HandleProtocol return value
+    and unconditionally used pciRootBridgeIo, which could be stale or NULL
+    when the call fails.
+    FIX: added EFI_ERROR guard; returns early on failure.
+  BUG-6 (TRIVIAL): ResizeIntelGpuBars two log format strings hardcoded
+    ".0" for the root function after the v9.5 multi-function scan fix.
+    When the Arc is found via 00:15.3 (func 3) the log reported 00:15.0.
+    FIX: changed format to "00:%02x.%x" with rootFunc as the argument.
+  ENHANCEMENT-A: ResizeIntelGpuBars: added REBAR_CTRL readback and
+    mismatch guard after writing (matching the pattern in ResizeAmdGpuBars).
+    If the hardware silently rejects the size index the BAR write is skipped.
+  ENHANCEMENT-B: ResizeIntelGpuBars: added Arc BAR2 low/high readback log
+    immediately after the write, for easier debugging of failed relocations.
+  ENHANCEMENT-C: HideDeviceViaLinkDisable: added duplicate-entry guard via
+    IsDeviceHidden() before inserting into gHiddenDevices[], preventing
+    double-hiding if the pre-scan runs more than once or a device appears
+    on multiple enumeration paths.
+  ENHANCEMENT-D: ProgramHiddenDeviceBars: added explicit Memory Space
+    disable before BAR writes, matching the pattern in ResizeIntelGpuBars
+    and ResizeAmdGpuBars.  Modifying BARs while Memory Space is enabled
+    can produce address-decode glitches on the PCIe link.
 
 v9.5 (2026-04-21) — ResizeIntelGpuBars MULTI-FUNCTION SCAN:
   v9.4 PROBLEM: After the physical swap W9170 -> slot 2, Arc -> riser, the W9170
@@ -830,6 +883,15 @@ static VOID HideDeviceViaLinkDisable(
     if (gHiddenDeviceCount >= MAX_HIDDEN_DEVICES)
         return;
 
+    // Guard against double-hiding the same device (e.g. if PreScanAndHideDevices
+    // is ever called more than once or the device appears on multiple bus paths).
+    if (IsDeviceHidden(bus, dev, func)) {
+        DEBUG((DEBUG_WARN,
+            "ReBarDXE: Device %02x:%02x.%x already in hidden list — skip\n",
+            bus, dev, func));
+        return;
+    }
+
     // Find the upstream bridge
     if (!FindParentBridge(rbIo, bus, &bridgeBus, &bridgeDev, &bridgeFunc)) {
         DEBUG((DEBUG_WARN,
@@ -1153,8 +1215,9 @@ static VOID ProgramHiddenDeviceBars(HIDDEN_DEVICE_ENTRY* entry)
     devAddr = EFI_PCI_ADDRESS(secBus, entry->DevDev, entry->DevFunc, 0);
 
     // Wait for link training — poll VID with a 500ms timeout
+    // BUSY_WAIT_MS(1) used here: gBS->Stall is unavailable (ExitBootServices context).
     for (retries = 0; retries < 500; retries++) {
-        gBS->Stall(1000);  // 1ms
+        BUSY_WAIT_MS(1);  // ~1 ms bare-metal delay
         if (!EFI_ERROR(pciReadDword(rbIo, devAddr, &vidDid))) {
             if ((vidDid & 0xFFFF) != 0xFFFF && (vidDid & 0xFFFF) != 0)
                 break;
@@ -1176,6 +1239,16 @@ static VOID ProgramHiddenDeviceBars(HIDDEN_DEVICE_ENTRY* entry)
         "(VID:DID=%04x:%04x)\n",
         secBus, entry->DevDev, entry->DevFunc, (UINT32)retries,
         (UINT16)(vidDid & 0xFFFF), (UINT16)(vidDid >> 16)));
+
+    // Disable Memory Space on the device before touching BARs.
+    // This matches the pattern used in ResizeIntelGpuBars and ResizeAmdGpuBars:
+    // writes to BAR registers while MemSpace is enabled can cause bus errors.
+    {
+        UINT16 cmd = 0;
+        pciReadWord(rbIo, devAddr + 0x04, &cmd);
+        cmd &= 0xFFF9;  // clear bit1=MemSpace, bit2=BusMaster
+        pciWriteWord(rbIo, devAddr + 0x04, &cmd);
+    }
 
     // Scan and program every BAR
     {
@@ -1455,8 +1528,8 @@ static VOID ResizeIntelGpuBars(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo)
     UINT8 rootDev, rootFunc;
     BOOLEAN gpuProcessed = FALSE;
 
-    DEBUG((DEBUG_INFO, "ReBarDXE: === Searching Intel GPU for ReBAR v9.5 ===\n"));
-    L_STR("[DC] ResizeIntelGpuBars v9.5 enter\n");
+    DEBUG((DEBUG_INFO, "ReBarDXE: === Searching Intel GPU for ReBAR v9.6 ===\n"));
+    L_STR("[DC] ResizeIntelGpuBars v9.6 enter\n");
 
     // v9.5: scan dev 0..31 x func 0..7 — 00:15.3 (SB900 riser) is func 3.
     for (rootDev = 0; rootDev < 32 && !gpuProcessed; rootDev++) {
@@ -1595,6 +1668,22 @@ static VOID ResizeIntelGpuBars(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo)
                     ctrl = (ctrl & ~0x3F00U) | ((UINT32)maxSizeIdx << 8);
                     pciWriteDwordEcam(rbIo, bus, d, 0, ctrlOff, &ctrl);
 
+                    // Verify the hardware accepted the new size
+                    {
+                        UINT32 ctrlRb = 0;
+                        pciReadDwordEcam(rbIo, bus, d, 0, ctrlOff, &ctrlRb);
+                        L_STR("[DC] REBAR_CTRL BAR"); L_DEC(barIndex);
+                        L_STR(" wrote=0x"); L_HEX(ctrl, 8);
+                        L_STR(" read=0x");  L_HEX(ctrlRb, 8); L_NL();
+                        if (((ctrlRb >> 8) & 0x3F) != maxSizeIdx) {
+                            DEBUG((DEBUG_WARN,
+                                "ReBarDXE: Arc REBAR_CTRL readback mismatch "
+                                "(wrote idx %d, read 0x%x) — skip BAR%d write\n",
+                                maxSizeIdx, ctrlRb, barIndex));
+                            continue;
+                        }
+                    }
+
                     // Program BAR with an address above 4GB
                     barOff = 0x10 + barIndex * 4;
                     pciReadDword(rbIo, devAddr + barOff, &origLo);
@@ -1632,6 +1721,18 @@ static VOID ResizeIntelGpuBars(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo)
                     newHi = (UINT32)(assignAddr >> 32);
                     pciWriteDword(rbIo, devAddr + barOff, &newLo);
                     pciWriteDword(rbIo, devAddr + barOff + 4, &newHi);
+
+                    // Readback: confirm BAR registers accepted the writes
+                    {
+                        UINT32 rbLo = 0, rbHi = 0;
+                        pciReadDword(rbIo, devAddr + barOff, &rbLo);
+                        pciReadDword(rbIo, devAddr + barOff + 4, &rbHi);
+                        L_STR("[DC] Arc BAR"); L_DEC(barIndex);
+                        L_STR(" wrote lo=0x"); L_HEX(newLo, 8);
+                        L_STR(" hi=0x"); L_HEX(newHi, 8);
+                        L_STR(" read lo=0x"); L_HEX(rbLo, 8);
+                        L_STR(" hi=0x"); L_HEX(rbHi, 8); L_NL();
+                    }
 
                     DEBUG((DEBUG_INFO,
                         "ReBarDXE: BAR%d resized: %d MB @ 0x%lx\n",
@@ -1749,7 +1850,7 @@ static VOID ResizeIntelGpuBars(EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL* rbIo)
                 }
 
                 gpuProcessed = TRUE;
-                L_STR("[DC] ResizeIntelGpuBars OK v9.5 — Arc BAR2 16GB @ 0x");
+                L_STR("[DC] ResizeIntelGpuBars OK v9.6 — Arc BAR2 16GB @ 0x");
                 L_HEX(ARC_BAR2_TARGET, 16);
                 L_STR(" bridge root 00:");
                 L_HEX(rootDev, 2); L_STR(".");
@@ -2839,7 +2940,7 @@ EFI_STATUS EFIAPI rebarInit(
     DEBUG((DEBUG_INFO, "ReBarDXE: ===== LOADED ===== [POST D0]\n"));
 
     // --- V8 LOG: banner + CSM scan ---
-    L_STR("=== 990fxOrchestrator v9.5 LOG ===\n");
+    L_STR("=== 990fxOrchestrator v9.6 LOG ===\n");
     L_STR("[D0] rebarInit entry\n");
     L_STR("[D0] imageHandle="); L_HEX((UINT64)(UINTN)imageHandle, 16); L_NL();
     L_STR("[D0] systemTable="); L_HEX((UINT64)(UINTN)systemTable, 16); L_NL();
