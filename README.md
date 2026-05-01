@@ -5,6 +5,7 @@ firmware and platforms that never supported *Above 4G Decoding* — specifically
 the **Gigabyte GA-990FX-Gaming Rev 1.0** (AMD SR5690 + SP5100, AMI Aptio IV)
 with AMD FX (Family 15h) CPUs, running the official **Rev 1.1 BIOS** as the
 modification base.
+(see also upstream notes for updates)
 
 This is a heavily extended fork of [xCuri0/ReBarUEFI][upstream]. See
 [Dedication](#dedication--why-this-exists) below for why this project is
