@@ -1,5 +1,4 @@
 /*
-Copyright (c) 2022-2023 xCuri0 <zkqri0@gmail.com>
 SPDX-License-Identifier: MIT
 
 MODULE: IDNEfirepro32g (v0.5.5) -- fork of 990fxOrchestrator v9.8 (en-US release)
