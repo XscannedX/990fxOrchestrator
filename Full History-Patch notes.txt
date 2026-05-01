@@ -1,0 +1,1331 @@
+################################################################################
+##                                                                            ##
+##                       I D N E f i r e p r o 3 2 g                          ##
+##                           990fxOrchestrator                                ##
+##                            P A T C H   N O T E S                           ##
+##                                                                            ##
+##                       Last updated: 2026-05-02                             ##
+##                                                                            ##
+################################################################################
+
+
+PROJECT
+-------
+UEFI DXE driver that enables Resizable BAR (ReBAR) for the AMD FirePro
+S9170/W9170 (modded W9100 identity, 32 GB GDDR5) on a Gigabyte
+GA-990FX-Gaming Rev 1.1 motherboard with stock AMI Aptio IV BIOS.
+
+HARDWARE TARGET
+---------------
+* Motherboard ... Gigabyte GA-990FX-Gaming Rev 1.1
+                  (SR5690 NB + SP5100 SB, AMI Aptio IV)
+* CPU ........... AMD FX, Family 15h (Bulldozer / Piledriver)
+* Multi-GPU ..... 2x NVIDIA Tesla P100 16 GB
+                  Intel Arc A770 16 GB
+                  AMD FirePro S9170 32 GB (modded W9170 identity)
+
+PROJECT HISTORY (TWO PHASES)
+----------------------------
+PART I .......... IDNEfirepro32g fork (v0.1 .. v0.5.5)
+                  Hardware-specific work for the Gigabyte 990FX target.
+PART II ......... 990fxOrchestrator upstream (v7 .. v9.8)
+                  The parent project this fork was branched from.
+
+Both parts are listed in reverse-chronological order (newest first).
+
+
+================================================================================
+                              QUICK REFERENCE
+================================================================================
+
+PART I — IDNEfirepro32g (this fork)
+
+  Version   Date              Headline
+  -------   ----------------  --------------------------------------------------
+  v0.5.5    2026-05-02        English release for upstream publication.
+  v0.5.4    2026-05-01        Revert BUG 2 fix (idne053 BIOS regression
+                              recovery — confirmed working on 990FX).
+  v0.5.3    2026-04-27 eve    REBAR clamp 16 GB (GART-space diagnostic).
+  v0.5.2    2026-04-27 mid    Import 6 bug fixes from external Banjo5k v9.6
+                              fork.
+  v0.5.1    2026-04-27        W9170 slot flexibility (PCIE1 CPU-direct
+                              support).  [never flashed]
+  v0.5      2026-04-26 eve    Bridge limit extension + remove SCRATCH_7 seed.
+  v0.4      2026-04-26        SCRATCH_7 byte offset corrected (Hawaii
+                              bif_4_1_d.h).
+  v0.3      2026-04-23        SCRATCH_7 bit-9 seed (S9170 server-card
+                              ASIC_INIT skip).
+  v0.2      2026-04-22        Minimal silicon override to 32 GB (v0.1
+                              autopsy).
+  v0.1      2026-04-22        First fork from 990fxOrchestrator v9.8.
+
+PART II — 990fxOrchestrator (upstream parent project)
+
+  Version   Date              Headline
+  -------   ----------------  --------------------------------------------------
+  v9.8      2026-04-22        Rollback silicon override to 16 GB (amdgpu
+                              full-BAR bug).
+  v9.7      2026-04-22        Fix 32 GB BAR alignment (PCIe spec R/O bits).
+  v9.6      2026-04-22        W9170 BAR0 32 GB via silicon override of VBIOS
+                              CAP.
+  v9.5      2026-04-21        ResizeIntelGpuBars multi-function scan (func
+                              0..7).
+  v9.4      2026-04-21        W9170 discovery becomes bus-agnostic.
+  v9.3      2026-04-20        Fix v9.2 placement bugs + expand M2MX to
+                              256 GB.
+  v9.2      2026-04-20        Explicit placement (BUG-A / B / C
+                              retrospective).
+  v9.1      2026-04-20        Apply990FxBridgeQuirkAll: stop zeroing upper32.
+  v9        2026-04-20        New ResizeAmdGpuBars + diagnostic beep melody.
+  v8        2026-04-20        [REMOVED in v9 — kept here for history]
+  v7        2026-04-20        Module rename to "990fxOrchestrator" + SB900
+                              root port whitelist (00:15.3 / 0x43A3).
+
+
+
+################################################################################
+#                                                                              #
+#               PART  I  —  IDNEfirepro32g  (this fork)                        #
+#                                                                              #
+################################################################################
+
+
+
+================================================================================
+v0.5.5  —  2026-05-02
+English release for upstream publication
+================================================================================
+
+STATUS
+    Built, FFS generated, ready for inject. Identical functional behavior
+    as v0.5.4 (verified working post-flash on 2026-05-01).
+
+WHAT CHANGED
+    * Full English translation of the file-header narrative and every
+      inline source comment.
+    * No functional changes vs v0.5.4 — same .efi behavior, same FFS GUID,
+      same NVRAM markers (only the version string in the markers moves
+      from "v0.5.4" to "v0.5.5").
+    * New banner:
+          [DE] ResizeAmdGpuBars v0.5.5 enter (16GB clamp + BUG2 reverted)
+    * Adds UPSTREAM_NOTES_v0.5.5.md
+          Full BUG 2 regression report submitted to the Banjo5k upstream
+          fork. Thanks @Banjo5k for the deep-dive scan, explains why fix
+          #2 must be reverted on Gigabyte AGESA-based Aptio IV boards,
+          and recommends three possible mitigations upstream.
+    * Adds SUPPORTED_HARDWARE.md
+          List of currently tested boards (only the Gigabyte
+          GA-990FX-Gaming Rev 1.1 at this time) and an invitation for
+          users on other 990FX hardware to report results so the list
+          can grow.
+
+ARTIFACTS
+    File                              Size       MD5
+    --------------------------------  ---------  --------------------------------
+    IDNEfirepro32g_v0.5.5.efi          39 424 B   f6ac865227e53f5f2110d657c52f1260
+    IDNEfirepro32g_v0.5.5.ffs          39 486 B   c271aef5f49074c2eec8d92aded85bf0
+    IDNEfirepro32g_v0.5.5.c          ~135 000 B   90b57b01b10f17d2ceafd3441f3e1330
+
+    FFS GUID: adf0508f-a992-4a0f-8b54-0291517c21aa
+    (unchanged from v9.8 → MMTool replace stays clean.)
+
+
+
+================================================================================
+v0.5.4  —  2026-05-01
+Revert BUG 2 fix (idne053 BIOS regression recovery)
+================================================================================
+
+STATUS
+    Built, flashed on 2026-05-01, EMPIRICALLY VERIFIED on the target
+    hardware: BIOS POSTs normally, USB input responsive, BIOS setup
+    fully navigable, no hang at POST code AB. The single-variable
+    bisect (revert BUG 2 only) confirms BUG 2 fix as the sole cause of
+    the idne053 regression on this board.
+
+CONTEXT
+    idne053, flashed on the evening of 2026-04-27, caused a hard BIOS
+    regression on Aptio IV:
+
+      * BIOS POST took ~15 s to reach the Gigabyte logo (vs ~3 s
+        baseline).
+      * BIOS UI eventually displayed but USB keyboard and mouse were
+        completely unresponsive.
+      * Loading defaults (F9 / menu) hung the system at POST code AB
+        (Aptio IV "Setup Idle / Verify Password" checkpoint), input
+        frozen.
+      * POST sequence reached checkpoint 92 (PCI bus enumeration done)
+        and A2 (SATA detect done), but stalled indefinitely at AB.
+      * Power-cycle did not recover; only a CH341A re-flash to a
+        known-good BIOS image restored normal operation.
+
+    idne051 (the previously-flashed version) did NOT contain the 6
+    Banjo5k v9.6 bug fixes that v0.5.2 introduced. idne052 was never
+    flashed. idne053 was therefore the first flash to hit production
+    with the v0.5.2 fix set, and we suspected BUG 2 fix specifically.
+
+ROOT CAUSE ANALYSIS
+
+    Before v0.5.2 (and pre-053):
+
+        pciWriteDword(rbIo, cpuNbAddr + 0x188, &baseHigh);
+        // EFI_PCI_ADDRESS(0,0x18,1,0) = 0x00180100
+        // 0x180100 + 0x188 = 0x00180288
+        // Decoded: bus=0, dev=0x18, func=2, reg=0x88
+        // → write lands at D18F2 reg 0x88 (DRAM Controller area).
+
+        On AMD FX, D18F2 reg 0x88 is a benign DRAM-PHY register:
+        defaults to zero on POR, Aptio IV does not consult it during
+        POST. We were writing 0 over a register already at 0 that
+        nothing reads — HARMLESS in our flow.
+
+    After v0.5.2 / .053 (with the BUG 2 fix applied):
+
+        pciWriteDword(rbIo, pciAddrOffset(cpuNbAddr, 0x188), &baseHigh);
+        // pciAddrOffset() uses the EFI_PCI_ADDRESS macro split-reg
+        // encoding for extended offsets (>= 0x100): the upper bits
+        // (offset >> 8) are routed into bits 32+ of the address,
+        // leaving bus/dev/func untouched.
+        // → write correctly lands at D18F1 reg 0x188
+        //   (= MMIO_BASE_HIGH_1, the actual NB MMIO Window 1
+        //   base-high register).
+
+    Catch on this hardware:
+
+        On the Gigabyte GA-990FX-Gaming Rev 1.1 with stock Aptio IV,
+        D18F1 reg 0x188 is NOT necessarily zero when our DXE driver
+        runs. The BIOS appears to pre-program this register during
+        early init — most likely as part of its own (incomplete)
+        attempt at MMIO routing setup. Our DXE module then writes 0
+        over it (because we compute baseHigh = (mmioBase >> 40) & 0xFF,
+        which is zero for any address below 256 GB), corrupting the
+        routing the BIOS later relies on. Downstream effect: AB hang,
+        dead USB, frozen POST.
+
+    In short:
+
+        On this board the "buggy" upstream code is safe by accident,
+        and the "correctness fix" is the regression trigger. So we
+        revert it.
+
+FIX
+    REVERT BUG 2 FIX. The 7 cpuNbAddr-related accesses (4 writes,
+    3 reads) at offsets:
+
+        MMIO_BASE_LOW_1   = 0x88
+        MMIO_LIMIT_LOW_1  = 0x8C
+        MMIO_BASE_HIGH_1  = 0x188
+        MMIO_LIMIT_HIGH_1 = 0x18C
+        DRAM_LIMIT_HIGH_0 = 0x144   (read only)
+
+    go back to direct addition `cpuNbAddr + offset` exactly as in
+    pre-v0.5.2. Marked in source as "BUG 2 FIX REVERTED" with inline
+    comments referencing this report.
+
+LESSON LEARNED
+    A bug fix imported from an external fork is sound only after its
+    impact on our specific code path has been verified. A correctness
+    change at a register the host BIOS depends on cannot be assumed
+    safe just because the fix is theoretically correct.
+
+EVERYTHING ELSE PRESERVED FROM v0.5.3
+    * REBAR clamp idx=0xE (16 GB) — diagnostic clamp from v0.5.3.
+    * W9170 slot flexibility (v0.5.1) — preventive Link Disable on any
+      slot, marker [DT].
+    * Bridge limit extended to 0x28FFFFFFFF (v0.5).
+    * No SCRATCH_7 seed (v0.5).
+    * BUG 1 fix kept .... gBS->Stall → IdneBusyWaitUs port-IO based.
+    * BUG 3 fix kept .... TTL guard in pciFindExtCapEcam.
+    * BUG 4 fix kept .... init + EFI_ERROR check on pciRebar* helpers.
+    * BUG 5 fix kept .... HandleProtocol return checked in
+                          reBarSetupDevice.
+    * BUG 6 fix kept .... Intel ReBAR log uses real rootFunc.
+
+EMPIRICAL VERIFICATION (2026-05-01 post-flash test)
+    * BIOS POSTs normally, USB input responsive, BIOS setup fully
+      navigable, no hang at AB.
+    * NVRAM marker correctly emitted:
+          [DE] ResizeAmdGpuBars v0.5.4 enter (16GB clamp + BUG2 reverted)
+    * Single variable changed (BUG 2 reverted), regression gone →
+      BUG 2 confirmed as the sole cause of the idne053 regression on
+      this board.
+
+    Note: the amdgpu-binding issue on the W9170 is ORTHOGONAL to this
+    BIOS regression and is being investigated on a separate axis. The
+    next step on that front is to re-flash the GPU with an original
+    W9100 workstation VBIOS to eliminate the modded-VBIOS variable.
+
+ARTIFACTS
+    File                              Size       MD5
+    --------------------------------  ---------  --------------------------------
+    IDNEfirepro32g_v0.5.4.efi          39 424 B   de9c7c7ce4278a3d9303bf181299215c
+    IDNEfirepro32g_v0.5.4.ffs          39 486 B   5d7e33b2c2013af12f0584e8120b17e9
+    IDNEfirepro32g_v0.5.4.c           164 696 B   b1b89f3f71731b15e32bb0400095c53d
+
+
+
+================================================================================
+v0.5.3  —  2026-04-27 (evening)
+REBAR clamp 16 GB (GART-space diagnostic)
+================================================================================
+
+STATUS
+    Built, FFS generated, ready for inject. Diagnostic build aimed at
+    the GART-space hypothesis. Was flashed as idne053; produced a BIOS
+    regression that turned out to be due to the BUG 2 fix (see v0.5.4).
+
+CONTEXT
+    Tests on 2026-04-27 with the W9170 at 32 GB BAR reproduced the
+    `ring gfx -110` kernel ring-init timeout on both PCIE1 (CPU-direct)
+    and on the SB900 riser. We wanted to test the hypothesis that the
+    GART table at the very top of the 32 GB BAR0 was running into
+    insufficient prefetchable headroom under the bridge before
+    pursuing a kernel patch on amdgpu_gart_table_ram_alloc.
+
+RATIONALE
+    At 16 GB BAR (idx = 0xE), the GART table lands at 0x23FFE00000
+    (top BAR 16 GB - 2 MB), and the bridge limit is 0x28FFFFFFFF,
+    giving ~17 GB of headroom from GART top to bridge top. Identical
+    to the v9.5 / v9.8 working baseline (16 GB BAR + amdgpu OK). If
+    ring -110 disappears at 16 GB, the bug is confirmed 32-GB-specific.
+    If it persists, root cause lies elsewhere.
+
+TRADE-OFF ACCEPTED
+    16 GB CPU-visible VRAM caps Vulkan / llama.cpp staging at ~16 GB
+    (see memo w9100_crash_vulkan.md, "Type B" GTT overflow on
+    workloads > 16 GB). Acceptable for this diagnostic test. Goal:
+    establish a working amdgpu baseline first, then look for a
+    workaround for the GTT overflow on the Vulkan / llama.cpp side.
+
+DELTA v0.5.2 → v0.5.3
+    Field             v0.5.2                              v0.5.3
+    ---------------   ---------------------------------   ---------------------------------
+    Silicon override  if (maxSizeIdx < 15) maxSizeIdx=15  if (maxSizeIdx > 14) maxSizeIdx=14
+                      (force 32 GB)                       (clamp 16 GB)
+    BAR0 size         32 GB                               16 GB
+    BAR0 target       0x2000000000                        unchanged
+    BAR2 target       0x2800000000                        unchanged (16 GB gap between
+                                                          BAR0 top and BAR2)
+    Bridge limit      0x28FFFFFFFF                        unchanged (oversized but
+                                                          harmless)
+    All other fixes   preserved                           preserved
+
+NEW MARKERS
+    [DE] ResizeAmdGpuBars v0.5.3 enter (16GB clamp)
+    [DE] v0.5.3 16GB clamp: idx 0E (16 GB, GART space test)
+    [DF] ResizeAmdGpuBars OK v0.5.3 — BAR0 16GB @ 0x...
+
+POSSIBLE OUTCOMES
+    dmesg ring                 Diagnosis                     Next step
+    ----------------------     ---------------------------   ------------------------------
+    ring gfx test passed       32-GB-specific bug confirmed  bench, look for path back to
+                                                             32 GB (kernel patch or VBIOS
+                                                             shrink)
+    ring gfx -110 identical    bug NOT BAR-dependent         kernel patch
+                                                             amdgpu_gart_table_ram_alloc
+                                                             for Hawaii (port radeon GART
+                                                             pattern)
+
+OUTCOME (UPDATED FROM v0.5.4 TESTING)
+    Once the BUG 2 BIOS regression was isolated (v0.5.4 confirmed
+    working on 2026-05-01), the result on this hardware is: BIOS-side
+    OK, but amdgpu binding still fails regardless of BAR size.
+    Investigation pivoted to the GPU's VBIOS — current hypothesis:
+    the W9170-modded VBIOS is the root cause; plan is to flash an
+    unmodded W9100 workstation VBIOS to remove that variable.
+
+VBIOS STATE (UNCHANGED)
+    w9170_vbios_FB2000_20260426.rom is in the GPU EEPROM since
+    2026-04-26. Only the BIOS module is reflashed at this step.
+
+ARTIFACTS
+    File                              Size       MD5
+    --------------------------------  ---------  --------------------------------
+    IDNEfirepro32g_v0.5.3.efi          39 424 B   b85b6ed1fb3e90c0f8cb19ef92003d28
+    IDNEfirepro32g_v0.5.3.ffs          39 486 B   74b1ba45785c09d3e94ed540b632832d
+    IDNEfirepro32g_v0.5.3.c           162 000 B   8d673de3818f2ff688927b554d5f2a95
+
+
+
+================================================================================
+v0.5.2  —  2026-04-27 (mid-day)
+Import 6 bug fixes from external Banjo5k v9.6 fork
+================================================================================
+
+STATUS
+    Built, FFS generated. v0.5.1 was kept in staging (never flashed),
+    v0.5.2 superseded it as the next flash candidate. BUG 2 fix here
+    is the one later reverted in v0.5.4 — see that entry.
+
+CONTEXT
+    On 2026-04-27 we discovered a public fork
+    `github.com/Banjo5k/990fxOrchestrator-personal` with a CHANGELOG
+    v9.6 documenting 6 bugs present in the v9.5 / v9.8 / IDNE
+    codebase. We reviewed our v0.5.1: 4 confirmed by direct read,
+    2 confirmed on deeper review. All imported, both for hygiene and
+    to give the next ring-110 debugging session a clean codebase.
+
+THE 6 FIXES
+
+    --- BUG 1  (HIGH)  -------------------------------------------------------
+    Symptom:    gBS->Stall() called inside the ExitBootServices
+                callback chain. UEFI spec violation: after
+                ExitBootServices is signaled, gBS->Stall is not
+                guaranteed to remain functional.
+    Call sites: ProgramHiddenDeviceBars line 1520
+                  (link-training poll, 1 ms)
+                V9Beep lines 2268, 2270, 2282, 2284
+                  (audio melody)
+    Fix:        All replaced with IdneBusyWaitUs(usec).
+                Implementation note: initially a TSC-based busy-loop;
+                hardened in v0.5.2 to use port-IO 0x80 (POST checkpoint
+                port) reads, because TSC calibration / TSC stop in C6
+                can drift the original design. Each IoRead8(0x80) is
+                ~1 us, stable across CPU clock states, no boot-services
+                dependency.
+
+    --- BUG 2  (MEDIUM)  -----------------------------------------------------
+    Symptom:    PCI offset overflow in ProgramCpuMmioWindow.
+                Extended-config-space writes (offset >= 0x100) added
+                directly to EFI_PCI_ADDRESS corrupt the function
+                field:
+                    EFI_PCI_ADDRESS(0,0x18,1,0) = 0x00180100
+                    + 0x188                     = 0x00180288
+                    → D18F2 reg 0x88 (wrong)
+                    Expected: D18F1 reg 0x188 (encoded in bits 32+
+                    of UINT64).
+    Affected:   writes to MMIO_BASE_HIGH_1 (0x188),
+                MMIO_LIMIT_HIGH_1 (0x18C), reads of
+                DRAM_LIMIT_HIGH_0 (0x144).
+    Note:       In our setup (mmio < 256 GB → baseHigh /
+                limitHigh = 0) the bug is invisible by coincidence:
+                we write zero to the wrong register, and the wrong
+                register is already zero. But if mmioLimit ever
+                exceeded 256 GB the bug would manifest.
+    Fix:        Route extended-offset accesses through pciAddrOffset(),
+                which encodes (offset >> 8) into bits 32+.
+    *** STATUS UPDATE ***
+                This fix has been REVERTED in v0.5.4 because Aptio IV
+                pre-programs D18F1 reg 0x188 to non-zero on Gigabyte
+                990FX, and zeroing it breaks BIOS POST. The "buggy"
+                pre-fix code is the safe configuration on this board.
+                See the v0.5.4 entry for the full analysis.
+
+    --- BUG 3  (LOW)  --------------------------------------------------------
+    Symptom:    Possible infinite loop in pciFindExtCapEcam. Iterates
+                the next-pointer chain without a TTL counter. A
+                corrupt capability list (rare, but possible) → hang.
+    Fix:        Added ttl = (0x1000 - 0x100) / 8 guard
+                (max valid extended cap entries).
+
+    --- BUG 4  (LOW)  --------------------------------------------------------
+    Symptom:    Uninitialized variables in the pciRebar* helpers.
+                pciRebarFindPos / pciRebarGetPossibleSizes /
+                pciRebarSetSize call pciReadConfigDword without
+                checking the return. On read failure, ctrl/cap remain
+                uninitialized → arithmetic on garbage.
+    Fix:        Initialize the locals to 0 before the call, add
+                EFI_ERROR guard, return -1 on read failure.
+
+    --- BUG 5  (LOW)  --------------------------------------------------------
+    Symptom:    HandleProtocol return discarded in reBarSetupDevice.
+                pciRootBridgeIo could remain invalid if HandleProtocol
+                fails.
+    Fix:        Check status, early return on NULL.
+
+    --- BUG 6  (TRIVIAL)  ----------------------------------------------------
+    Symptom:    Hardcoded ".0" in Intel ReBAR log strings (3 calls
+                hardcoding function ".0" instead of using the real
+                rootFunc).
+    Fix:        Format as ".%x" with the real rootFunc value.
+
+CARRY-OVER FROM v0.5.1
+    All v0.5.1 changes preserved (slot flexibility W9170 [DT], bridge
+    extension 0x28FFFFFFFF, no SCRATCH_7 seed, [DR] readback, BAR
+    32 GB target). v0.5.2 is a purely-hygienic delta + latent bug
+    fixes.
+
+ring -110 IMPACT
+    None of the 6 fixes is directly related to the ring gfx -110
+    observed on 2026-04-27 with the W9170 32 GB on PCIE1. But BUG 2
+    (write to the wrong D18F2 register) could in principle have
+    silent side effects on MMIO routing. v0.5.2 removes that
+    uncertainty before the next round of diagnostic tests
+    (ppfeaturemask=0x0, etc.).
+
+    (Verdict from later v0.5.4 work: BUG 2's fix is itself the
+    regression trigger on Aptio IV; the buggy code is the safe
+    configuration on this board.)
+
+
+
+================================================================================
+v0.5.1  —  2026-04-27
+W9170 slot flexibility (PCIE1 CPU-direct support)
+================================================================================
+
+STATUS
+    Built, FFS generated. NEVER ACTUALLY FLASHED — kept in staging;
+    superseded by v0.5.2 as the next flash candidate.
+
+CONTEXT
+    On 2026-04-27 the W9170 was moved from the SB900-riser slot
+    (00:15.3 → bus 0x23) to a CPU-direct PCIE1 slot (00:02.0 → bus
+    0x01). Aptio IV stalled at POST 0d because it tried to allocate
+    the W9170's 64-bit prefetchable MMIO before our DXE module had
+    programmed NB MMIO Window 1 + the HT gate. On the SB900 riser the
+    chipset bridge has autonomous routing and the problem does not
+    manifest; on the SR5690 root port we need the 64-bit gate open
+    first.
+
+FIX (MINIMAL DELTA vs v0.5)
+    * PreScanAndHideDevices now hides the W9170 PREVENTIVELY by
+      VID:DID (1002:67A0) on ANY slot, regardless of
+      DeviceHasLargeBarEx. The previous logic only hid devices with
+      BAR > 4 GB: a W9170 sitting at the default REBAR idx = 0
+      (256 MB) was NOT being hidden, and Aptio IV's allocation
+      attempt failed on the SR5690 root port.
+    * New marker [DT] in the NVRAM log records bus:dev.func of the
+      found W9170 plus its parent bridge — useful to diagnose which
+      slot is in use.
+    * All v0.5 changes preserved (bridge ext 0x28FFFFFFFF, no
+      SCRATCH_7 seed, BAR 32 GB target, REBAR idx = 0xF override).
+
+OTHER DEVICES (UNCHANGED)
+    * Tesla P100: BAR1 16 GB → matched by DeviceHasLargeBarEx, hidden
+      as before.
+    * Intel Arc: protected by VID 0x8086 check.
+    * Only the W9170 gets the new VID:DID-specific preventive-hide
+      treatment.
+
+EXPECTED OUTCOME
+    W9170 functional on PCIE1 / PCIE2 (SR5690 root port) in addition
+    to the SB900 riser. Same amdgpu behavior — the orthogonal GART
+    hang is still to be addressed.
+
+
+
+================================================================================
+v0.5  —  2026-04-26 (evening)
+Bridge extension + remove SCRATCH_7 seed
+================================================================================
+
+STATUS
+    Built, flashed as idne05.
+
+CONTEXT
+    idne04 flashed; GPU VBIOS reverted to W9170-modded patched
+    (FB_LOCATION 0xF400 → 0x2000, the patched 243673_fb2000.rom). The
+    combination revealed that:
+
+      1. The patched-S9170 VBIOS was not programming MC during BIOS
+         POST: idne04's DXE phase read CONFIG_MEMSIZE = 0 (before the
+         seed step ran), confirming the pre-OS VBIOS path leaves MC
+         unconfigured.
+      2. The W9170-modded VBIOS DOES program MC correctly, but only
+         when the kernel calls amdgpu_atom_asic_init(). Aptio IV does
+         not invoke it during POST even with CSM nominally "off".
+      3. The bit-9 SCRATCH_7 seed introduced in idne04 only made
+         sense while the VBIOS was the patched-S9170 broken-MC
+         variant. With the W9170-modded VBIOS in chip, that seed
+         prevents the kernel POST that we now actually want to
+         happen → counter-productive.
+
+RUNTIME TEST (2026-04-26 evening, netconsole on Nobara)
+    * rmmod amdgpu; devmem 0xFE401740 0x00 (clear bit 9);
+      modprobe amdgpu
+    * kernel calls AsicInit → "GPU posting now…" success
+    * dmesg: VRAM 32768M @ 0x2000000000-0x27FFFFFFFF, RAM width
+      512 bit GDDR5
+    * dmesg: 32768M VRAM ready, 32768M GTT ready, GART 1024M ready
+    * dmesg: "PCIE GART of 1024M enabled (table at 0x27FFE00000)"
+    * HANG IMMEDIATELY. netconsole goes silent. Reboot required.
+
+ANALYSIS
+    GART table @ 0x27FFE00000 = top-of-BAR0 (32 GB) - 2 MB, i.e. 8 MB
+    below the bridge limit (0x28007FFFFF). Hypothesis: SR5690
+    prefetch / routing at the bridge edge causes UR / freeze when MC
+    writes PTEs into those last 2 MB. v9.5 / v9.8 worked because their
+    16 GB BAR put GART top at 0x23FFE00000 → ~14 GB headroom from the
+    bridge edge. Now the 32 GB BAR has only 8 MB headroom — right at
+    the limit.
+
+FIX (MINIMAL DELTA vs v0.4)
+    * W9170_BRIDGE_LIMIT extended from 0x28007FFFFF to 0x28FFFFFFFF
+      (+1 GB of prefetch buffer above BAR2). The GART table stays at
+      0x27FFE00000 but is no longer at the absolute edge of the
+      bridge: it has ~1 GB + 8 MB of buffer before the unsupported
+      region.
+    * Removed the entire SCRATCH_7 seed block (was step 13 in v0.4).
+      The kernel must run AsicInit naturally; MC is programmed by the
+      W9170 VBIOS in chip; CONFIG_MEMSIZE comes out valid.
+    * Markers [DK] / [DL] / [DM] removed (they belonged to the
+      SCRATCH_7 block).
+    * New marker [DR] (post-write bridge-limit readback) gives an
+      NVRAM-side confirmation that the extension was applied.
+    * Everything else unchanged: BAR programming, REBAR_CTRL idx =
+      0xF, bridge base, NB MMIO Window 1 to 256 GB, Link Disable,
+      DSDT MALH = 1.
+
+EXPECTED POST-FLASH BOOT
+    * dmesg: "GPU posting now…" (natural kernel AsicInit).
+    * dmesg: VRAM 32768M, RAM width 512 bit GDDR5.
+    * dmesg: "PCIE GART of 1024M enabled (table at 0x27FFE00000)".
+    * No hang → the bridge extension fix works.
+    * amdgpu probe completes → /dev/dri/cardN for S9170 → bench.
+
+FALLBACK TEST PLAN (IF HANG PERSISTS)
+    * amdgpu.gartsize=4096 → larger GART table (8 MB instead of
+      2 MB) → moves the start of the table 6 MB lower → tests
+      hypothesis (b/c) "PTE write at the very top of VRAM" vs (a)
+      "prefetch overshoot above the bridge".
+    * If it still hangs → patch the W9170 VBIOS for a shrunken
+      CONFIG_MEMSIZE (-512 MB margin) + reflash GPU + idne06.
+
+
+
+================================================================================
+v0.4  —  2026-04-26
+SCRATCH_7 byte offset corrected (Hawaii bif_4_1_d.h)
+================================================================================
+
+STATUS
+    Built, flashed as idne04.
+
+CONTEXT
+    v0.3 was flashed as idne03.F2. Cold boot of Linux amdgpu still
+    showed "GPU posting now" + a cascade of #1..#5 hangs in
+    gmc → seq64 → bo_create → bo_kmap → ttm_bo_kmap. We initially
+    suspected (and later disproved) a hardware bug; runtime attempts
+    via devmem2 / ioremap+writel / kretprobe all read 0x17A unchanged
+    at "SCRATCH_7", leading to the wrong diagnosis "HW-RO register
+    with GFXCLK gating".
+
+REAL BUG IN v0.3
+    Cross-checked against linux-6.17 sources + AMD bif headers,
+    evening of 2026-04-26 with the user:
+
+    * SCRATCH_7 offset was computed at 0x3CB dword (0xF2C byte)
+      starting from mmBIOS_SCRATCH_0 = 0x3C4 + 7. That 0x3C4 belongs
+      to a different ASIC (probably VI / SI) or a misread disasm.
+    * Correct header for Hawaii (CIK):
+          amd/include/asic_reg/bif/bif_4_1_d.h:151
+              #define mmBIOS_SCRATCH_7   0x5d0
+          → byte offset MMIO = 0x5d0 << 2 = 0x1740, not 0xF2C.
+    * v0.3 was therefore writing 0x200 to a generic register at 0xF2C
+      (irrelevant to amdgpu). The real SCRATCH_7 at 0x1740 was never
+      touched. All runtime workarounds also used 0xF2C → same bug.
+      The "0x17A unchanged" we kept reading was the real SCRATCH_7
+      at 0x1740 (never modified by us), correctly read by
+      amdgpu_atombios_scratch_need_asic_init() which uses the right
+      bios_scratch_reg_offset.
+
+KERNEL CROSS-CHECK
+    drivers/gpu/drm/amd/amdgpu/amdgpu_atombios.c:
+
+        bool amdgpu_atombios_scratch_need_asic_init(adev) {
+            u32 tmp = RREG32(adev->bios_scratch_reg_offset + 7);
+            if (tmp & ATOM_S7_ASIC_INIT_COMPLETE_MASK)   // 0x00000200
+                return false;   // skip POST
+            return true;        // do POST
+        }
+
+    Mask = 0x200 = bit 9. Confirmed in atombios.h:7075. The earlier
+    note saying "bit 2 / 0x04" came from misinterpreting
+    ATOM_S7_ASIC_INIT_COMPLETEb1 = 0x02 (= the value of byte 1 of
+    the 32-bit register = 0x02 << 8 = 0x200, same bit, two
+    representations).
+
+FIX (MINIMAL DELTA vs v0.3)
+    * Byte offset 0xF2C → 0x1740 (correct mmBIOS_SCRATCH_7 for
+      Hawaii).
+    * Markers [DI] / [DJ] → [DK] / [DL] to distinguish them in
+      netconsole from the lingering v0.3 echo in flash (different
+      offset, different write — no confusion).
+    * Added a diagnostic readback of CONFIG_MEMSIZE @ BAR5 + 0x5428
+      as [DM]:
+          32768 (0x8000) → BAR5 base correct, VBIOS POST went well
+          0              → BAR5 base wrong (sanity check independent
+                           of the base address)
+    * Mask unchanged: 0x200 (bit 9). BAR5 read unchanged (already
+      dynamic in v0.3 from config space @ 0x24). Guard unchanged
+      (0 / 0xFFFFFFF0 check).
+
+EXPECTED BOOT POST-idne04
+    * dmesg: NO "GPU posting now…" (need_post = false).
+    * dmesg: NO hang in atom_execute_table → ASIC_INIT.
+    * dmesg: NO #1..#5 cascade hangs (they were all consequences of
+      the re-POST).
+    * amdgpu probe → ring gfx test passed → /dev/dri/cardN for S9170.
+    * 32 GB CPU-visible VRAM, 4× GPU full-BAR.
+
+(Note: in v0.5+ this seed is no longer programmed at all; this
+section is kept here as historical reference.)
+
+
+
+================================================================================
+v0.3  —  2026-04-23
+SCRATCH_7 bit-9 seed (S9170 server-card ASIC_INIT skip)
+================================================================================
+
+STATUS
+    Built, flashed as idne03.
+
+CONTEXT
+    v0.2 was flashed as IDNE02.F2 on top of FTP41.F2. Overnight
+    2026-04-22/23 the W9170's VBIOS was patched: original S9170
+    243673.rom → 243673_fb2000.rom (one functional byte at offset
+    0x06E52, F4 → 20; checksum fixup at 0xFFFF, 00 → D4). The patch
+    moves the hardcoded MC_VM_FB_LOCATION from 0xF4000000_00 to
+    0x20000000_00, lining it up with the BAR0 programmed by the DXE
+    module.
+
+    After flashing the patched VBIOS + cold boot:
+
+    * BAR0 allocated at 0x2000000000 with size = 32 GB. The original
+      S9170 CAP bitmap exposes idx = 15; the earlier
+      REBAR_CAP = 0x0007F000 we had read was an artifact of the
+      modded W9100 identity, NOT a silicon limitation.
+    * The "Block A" hypothesis from a v0.3 draft (silicon
+      16-GB-only) was FALSE. Hawaii silicon is natively
+      32-GB-capable. The original S9170 VBIOS confirms: REBAR_CAP
+      declares bit 19 set.
+    * NEW BLOCKER: amdgpu calls atom_asic_init() because it reads
+      BIOS_SCRATCH_7 bit 9 = 0 → need_post = TRUE → the ATOM POST
+      runs again → hang.
+
+ROOT CAUSE (LIVE LINUX SESSION 2026-04-23)
+    * The S9170 is a server card with no display output → its VBIOS
+      POST does not run ASIC_Init during BDS (no display init path).
+    * Therefore BIOS_SCRATCH_7 bit 9
+      (ATOM_S7_ASIC_INIT_COMPLETE_MASK = 0x200) is never set during
+      the system POST.
+    * amdgpu_atombios_scratch_need_asic_init() tests that bit:
+          mov 0x8bc(%rdi),%eax    ; bios_scratch_reg_offset = 0x3C4
+                                  ; (CIK / Hawaii)
+          lea 0x7(%rax),%esi      ; SCRATCH_7 index = 0x3CB
+          call RREG32             ; reads 0x17A
+          shr $0x9,%eax           ; shift bit 9 → position 0
+          xor $0x1,%eax
+          and $0x1,%eax           ; returns !bit9
+      With bit 9 = 0 → need_post = TRUE → ATOM re-POST → GFXCLK
+      still gated + MC state inconsistent → hang.
+    * Runtime attempts from Linux (echo via /sys, mmap on BAR5) all
+      failed: after POST, GFXCLK gating makes SCRATCH_7 effectively
+      HW read-only. Only an early-DXE write (before the gating) can
+      survive.
+
+FIX
+    MmioWrite32 of BIOS_SCRATCH_7 |= 0x200 (bit 9) at the W9170's
+    BAR5, inside ResizeAmdGpuBars, AFTER programming BAR0 + BAR2 but
+    BEFORE re-enabling Memory + BusMaster. At that moment:
+
+    * The W9170's BAR5 still holds the value programmed by BDS
+      (0xFE400000 on this system; BAR5 is fixed 32-bit).
+    * The 32-bit write/read cycle is served directly by the HW
+      register (GFXCLK is not gated yet because no one has run an
+      ASIC_Init POST after our resize).
+
+    BAR5 address computation:
+        bar5         = config[0x24] & 0xFFFFFFF0  ; clear BAR flags
+        scratch_addr = bar5 + 0xF2C               ; SCRATCH_0 = 0x3C4,
+                                                  ; +7 dword = 0xF2C
+
+VERIFICATION GO (NVRAM LOG POST-BOOT)
+    [DI] pre  = 0x0000017A   ; bit 9 = 0, expected on S9170
+    [DJ] post = 0x0000037A   ; bit 9 = 1, ASIC_INIT_COMPLETE set
+    kernel amdgpu: NO "GPU posting now" message
+                   NO hang in atom_execute_table → ASIC_INIT
+
+CHANGES vs v0.2
+    * Banner strings v0.2 → v0.3 (header [DE], [DF], log header).
+    * New code block in ResizeAmdGpuBars between step 11b (BAR2) and
+      step 12 (Memory + BusMaster re-enable): ~20 lines of
+      MmioRead32 / MmioWrite32 on BAR5 + 0xF2C with [DI] / [DJ] log.
+
+UNCHANGED vs v0.2
+    * Silicon override at idx = 15 (32 GB) — now confirmed sane by
+      the original S9170 VBIOS; the module keeps the same REBAR_CTRL
+      write.
+    * Bridge window (00:15.3 pref64), BAR target addresses,
+      bus-agnostic discovery, DSDT M2MX patch, NB MMIO window, Link
+      Disable, PreprocessController backup.
+    * No write of MC_VM_FB_LOCATION (now handled by the patched
+      VBIOS, FB_LOCATION declared = 0x2000000000_00).
+
+EXPECTED BOOT
+    * amdgpu_atombios_scratch_need_asic_init() → bit 9 = 1 → FALSE →
+      amdgpu_need_post() = FALSE → ATOM re-POST skipped.
+    * sw_init proceeds; MC_VM_FB_LOCATION already coherent
+      (VBIOS-set); CONFIG_MEMSIZE coherent; ring gfx test OK.
+    * "Detected VRAM RAM=32768M, BAR=32768M" + amdgpu probe OK.
+    * 32 GB CPU-visible VRAM on the W9170, 4× GPU full-BAR.
+
+UPDATE
+    This fix turned out to be writing to the wrong byte offset
+    (0xF2C instead of 0x1740). Diagnosed and fixed in v0.4. Then
+    made obsolete by v0.5, which removes the SCRATCH_7 seed entirely
+    once the W9170-modded VBIOS landed in chip.
+
+
+
+================================================================================
+v0.2  —  2026-04-22
+Minimal silicon override to 32 GB (v0.1 autopsy)
+================================================================================
+
+STATUS
+    Built, flashed as IDNE02.F2 on top of FTP41.F2.
+
+DISCOVERY FROM v0.1
+    The DXE module did its job perfectly: REBAR_CTRL post = 0x00000f20
+    (idx = 15), BAR0 visible [size = 32G] at 0x2000000000 in config
+    space, all marker logs fired. But the kernel amdgpu fails with:
+        "Detected VRAM RAM=0M, BAR=32768M"
+        "sw_init of gmc_v7_0 failed -22"
+
+ROOT CAUSE (AUTOPSY 2026-04-22)
+    * v0.1 set BIOS_SCRATCH_7 bit 9 (ATOM_S7_ASIC_INIT_COMPLETE_MASK)
+      to tell amdgpu "POST already done, skip".
+    * But nobody had actually run POST first: the 2015 Aptio IV BIOS
+      has no AtomBIOS handler for Hawaii, and we had blocked the only
+      POST path that amdgpu would have run (need_post = false because
+      of bit 9).
+    * Result: CONFIG_MEMSIZE (the GMC register at BAR5 + 0x5428),
+      which is normally written by ATOM MC_Init during POST, was
+      never populated. amdgpu read it as 0 → mc_vram_size = 0 →
+      inverted VRAM range → -22 EINVAL.
+
+VBIOS EVIDENCE (PARSE OF 243673.rom + w9170_vbios_20260422.rom)
+    * Both declare "GDDR5 32GB" in BIOS_BootupMessage.
+    * Embedded config filename:
+          "C67620_GDDR5_32GB"          (modded)
+          "C68120_S9170_GDDR5_32GB"    (original)
+    * Physical chips: Samsung K4G80325FB (GDDR5 8 Gb x32) in
+      clamshell = 32 GB.
+    * ucVramModuleVer = 7 (V7), byte-for-byte identical between
+      original and modded.
+    * Therefore: if ATOM POST runs, CONFIG_MEMSIZE will be written
+      to 32768 MB.
+
+FIX — REMOVE ALL EXPERIMENTAL WRITES FROM v0.1
+    * REMOVED: ProgramHawaiiFullBarMc() (MC_VM_FB_LOCATION pre-write)
+    * REMOVED: SetScratch7Bit9 safety-net in OnExitBootServices
+    * REMOVED: gSavedW9170EpAddr
+    * Let amdgpu run POST itself (need_post = true) → ATOM
+      ASIC_Init reads BAR0 from config space (now 0x2000000000) and
+      writes a coherent FB_LOCATION + CONFIG_MEMSIZE from the VBIOS
+      VRAM_Info.
+
+CHANGES vs v9.8
+    * Only the maxSizeIdx clamp:
+          v9.8: if (>14) clamp 14
+          v0.2: if (<15) force 15
+      Hawaii silicon's PCIe IP accepts idx = 15 (verified in v0.1
+      boot log, REBAR_CTRL post = 0x00000f20). The VBIOS CAP bitmap
+      declares max 14, but the CTRL register accepts 15.
+    * Log "BAR0 16GB" → "BAR0 32GB" in [DF] and the memory-map ASCII.
+    * Banner "990fxOrchestrator v9.8" → "IDNEfirepro32g v0.2".
+    * Gap 0x2400000000..0x27FFFFFFFF removed (the W9170 BAR0 now
+      occupies the full 32 GB).
+
+UNCHANGED vs v9.8
+    * All address constants (W9170_BAR0_TARGET 0x2000000000, etc.).
+    * Bridge window 00:15.3 (base 0x2000000000, limit 0x28007FFFFF):
+      already 32-GB-capable in v9.8 (it was oversized).
+    * Bus-agnostic discovery, DSDT M2MX patch, NB MMIO window, Link
+      Disable, PreprocessController backup.
+
+EXPECTED BOOT
+    * amdgpu: SCRATCH_7 bit 9 = 0 → need_post = true.
+    * atom_asic_init() → ATOM MC_Init reads VRAM_Info → writes
+      CONFIG_MEMSIZE = 32768, FB_LOCATION coherent with BAR0.
+    * "Detected VRAM RAM=32768M, BAR=32768M" → MATCH.
+    * sw_init OK, ring test OK, 32 GB CPU-visible VRAM.
+
+UPDATE
+    This turned out not to work, because the system's BIOS never
+    runs POST for the S9170 in the first place — the next step was
+    the SCRATCH_7-based seed in v0.3, then the offset correction in
+    v0.4, then complete removal in v0.5 once a VBIOS-side fix
+    landed.
+
+
+
+================================================================================
+v0.1  —  2026-04-22
+First fork from 990fxOrchestrator v9.8
+================================================================================
+
+STATUS
+    Initial fork. Flashed as IDNE0.1.F2 on top of FTP41.F2.
+
+WHAT
+    * Initial fork of upstream 990fxOrchestrator v9.8 into the
+      IDNEfirepro32g family.
+    * Goal: enable the full 32 GB ReBAR for the FirePro S9170 with
+      a patched VBIOS.
+
+VBIOS USED
+    243673_fb2000.rom: FB_LOCATION 0xF400 → 0x2000, to match the
+    bridge window allocated by this DXE module.
+
+EXPERIMENTAL ELEMENT
+    v0.1 also experimented with explicitly forging
+    ATOM_S7_ASIC_INIT_COMPLETE in SCRATCH_7 to skip the kernel-side
+    POST (since the BIOS won't run it for a server card). That
+    approach turned out to be wrong (see v0.2 autopsy) and was
+    refined / replaced through v0.3 → v0.5.
+
+
+
+################################################################################
+#                                                                              #
+#       PART  II  —  990fxOrchestrator  (upstream parent project)              #
+#                                                                              #
+################################################################################
+
+This section preserves the upstream history that pre-dates the IDNE
+fork, so future maintainers and downstream forks can see how the
+relevant strategies (Link Disable, NB MMIO Window 1, bridge quirks,
+multi-function bridge scan, beep diagnostics, etc.) evolved before
+they landed in IDNEfirepro32g v0.1.
+
+
+
+================================================================================
+v9.8  —  2026-04-22
+Rollback silicon override to 16 GB (amdgpu full-BAR bug)
+================================================================================
+
+DISCOVERY FROM v9.7 (FLASHED FTP41.F2, MD5 8465D16287…)
+    The module programmed BAR 32 GB @ 0x2000000000 correctly; Hawaii
+    silicon confirmed idx = 15 at readback (REBAR_CTRL post =
+    0x00000f20); Linux saw the BAR at 32 GB [size = 32G] at the
+    right address. But amdgpu fails with "ring gfx test -110" at
+    probe.
+
+ROOT CAUSE (Linux + journalctl -b 0 CLEAN BOOT DIAGNOSIS)
+    * BAR = VRAM = 32 GB → amdgpu detects full-BAR mode.
+    * amdgpu_need_post() = TRUE → ATOM POST runs.
+    * ATOM hardcoded MC_VM_FB_LOCATION = 0xF400000000 (NOT the BAR
+      address 0x2000000000).
+    * Full BAR mode + POST + MC_VM_FB_LOCATION != BAR address →
+      ring gfx -110 (timeout).
+    * GART ends up at 0xFBFFE00000 (end-of-VRAM in full-BAR mode),
+      inconsistent with the bridge window.
+
+    In v9.5 (16 GB BAR < 32 GB VRAM = partial-BAR mode):
+    need_post = FALSE, POST skipped, MC_VM_FB_LOCATION keeps the
+    correct value, ring PASS.
+
+FIX
+    Rollback the silicon override — force idx = 14 (16 GB) even when
+    the silicon accepts idx = 15. Avoids full-BAR mode until either:
+        (a) atombios is patched (MC_VM_FB_LOCATION + MC_VM_FB_OFFSET
+            + BIOS_SCRATCH_7), or
+        (b) the amdgpu kernel driver learns to handle BAR == VRAM on
+            CIK / Hawaii.
+
+CHANGES vs v9.7
+    * ResizeAmdGpuBars: maxSizeIdx override = 14 (16 GB) instead of
+      15 (32 GB). If the VBIOS CAP already declares max >= 14, no
+      override happens; if it declares 0x0007F000 (max = 14), the
+      override branch is not taken. So in practice v9.8 = use the
+      VBIOS-declared max.
+    * Log "BAR0 32GB" → "BAR0 16GB" in [DF] ResizeAmdGpuBars OK.
+    * Banner [DE] enter and LOG header → v9.8.
+    * Address constants unchanged vs v9.7: W9170_BAR0_TARGET
+      0x2000000000 (16-GB-aligned, OK for 16 GB BAR),
+      W9170_BAR2_TARGET 0x2800000000, W9170_BRIDGE_LIMIT
+      0x28007FFFFF. The bridge window stays 32 GB + 8 MB wide —
+      oversized for 16 GB but harmless (the limit is the max, not
+      the actual size).
+    * Unchanged: bridge 00:15.3 window, fix 43a3, Arc 16 GB, riser
+      23:00.0, PreprocessController backup, DSDT patch M2MX v2,
+      NB MMIO window.
+
+FUTURE WORK
+    32 GB for real requires either a patched atombios VBIOS
+    (MC_VM_FB_LOCATION hardcoded + REBAR_CAP bitmap bit 15) or a
+    patched amdgpu kernel that forces partial-BAR mode even when
+    BAR == VRAM on CIK / Hawaii. Details in
+    memory/w9170_v97_regression.md. (This is what the IDNEfirepro32g
+    v0.1+ work then chases.)
+
+
+
+================================================================================
+v9.7  —  2026-04-22
+Fix 32 GB BAR alignment (PCIe spec R/O bits)
+================================================================================
+
+DISCOVERY FROM v9.6
+    Hawaii silicon's PCIe IP really does accept idx = 15 at POST
+    time — REBAR_CTRL (post) = 0x00000f20 observed in NVRAM log
+    (the silicon override is validated in the field). But the
+    kernel saw BAR0 at 0x1800000000 instead of 0x1C00000000 (which
+    is what we wrote).
+
+ROOT CAUSE
+    PCIe spec: for a BAR of size 2^N, address bits [N-1:0] are
+    hardwired R/O. For 32 GB (N = 35) → bits [34:0] are R/O.
+    v9.6's target = 0x1C00000000 has bit 34 set (16 GB offset). The
+    hardware drops bit 34 at readback → kernel reads 0x1800000000
+    → collides with the Arc bridge window
+    (0x1800000000..0x1BFFFFFFFF) → kernel refuses to claim the BAR
+    and falls back to 16 GB.
+
+FIX — RE-ALLOCATE THE W9170 TO A 32-GB-ALIGNED ADDRESS
+    W9170_BAR0_TARGET:   0x1C00000000 → 0x2000000000 (bit 34 clear,
+                         first 32-GB-aligned boundary above Arc).
+    W9170_BAR2_TARGET:   0x2400000000 → 0x2800000000 (shift +4 GB
+                         to land above the 32 GB BAR0).
+    W9170_BRIDGE_BASE:   0x1C00000000 → 0x2000000000.
+    W9170_BRIDGE_LIMIT:  0x2400FFFFFF → 0x28007FFFFF (covers BAR0
+                         32 GB + BAR2 8 MB, 1-MB-aligned inclusive
+                         limit).
+
+MEMORY MAP
+    Gap 0x1C00000000..0x1FFFFFFFFF (4 GB spare) introduced between
+    Arc and W9170. Total spare > 100 GB
+    (M2MX 256 GB - allocated).
+
+
+
+================================================================================
+v9.6  —  2026-04-22
+W9170 BAR0 32 GB via silicon override of VBIOS CAP
+================================================================================
+
+DISCOVERY
+    The W9170 VBIOS declares REBAR_CAP = 0x0007F000 (bits 12..18,
+    max size index = 14 = 16 GB). But Hawaii silicon's PCIe IP
+    accepts REBAR_CTRL.size = 15 (32 GB) — verified empirically on
+    2026-04-22 with `setpci ECAP_REBAR+08.L=00000f00` + readback
+    0x00000f20 on BDF 23:00.0.
+
+    The VBIOS lies low: the CAP bitmap is conservative (probably
+    inherited from the W9100 line that has 16 GB VRAM), but the
+    silicon's CTRL register is more permissive (Hawaii PCIe IP is
+    32-GB-capable).
+
+BONUS
+    BAR == VRAM == 32 GB removes the partial-ReBAR bug in amdgpu on
+    Hawaii / Sea Islands (the fast-path direct-access assumes
+    BAR >= VRAM; with a 16 GB BAR on top of 32 GB VRAM the path
+    fails on LLM models > 16 GB — the "gemma-31B HANG ngl 99
+    overflow" symptom logged in
+    bench_results_20260420_v9.3/RESULTS.md).
+
+RUNTIME TARGET
+    W9170 BAR0 = 32 GB exposed to the kernel → models in the
+    16..32 GB range handled directly without BAR-window swap.
+
+CHANGES vs v9.5
+    * ResizeAmdGpuBars: maxSizeIdx = 15 override after reading the
+      CAP bitmap (the VBIOS-declared value remains logged for
+      diagnostics).
+    * W9170_BAR2_TARGET: 0x2000000000 → 0x2400000000 (BAR2 shifted
+      16 GB above BAR0 → 32 GB above BAR0).
+    * W9170_BRIDGE_LIMIT: 0x2000FFFFFF → 0x2400FFFFFF (the bridge
+      pref64 window now covers BAR0 32 GB + BAR2 8 MB).
+    * ASCII memory map: W9170 BAR0 range
+      0x1C00000000..0x23FFFFFFFF (32 GB), W9170 BAR2 at
+      0x2400000000, spare reduced from ~126 GB to ~118 GB (still
+      very generous).
+    * Final log [DF]: "BAR0 16GB" → "BAR0 32GB".
+    * v9.4 ResizeAmdGpuBars comment updated to 32 GB (idx = 15).
+
+
+
+================================================================================
+v9.5  —  2026-04-21
+ResizeIntelGpuBars multi-function scan (func 0..7)
+================================================================================
+
+PROBLEM IN v9.4
+    After physically swapping W9170 → slot 2 and Arc → riser, the
+    W9170 ReBAR works (the v9.4 bus-agnostic discovery handles it),
+    but the Arc regresses to a 256 MB BAR. Runtime (2026-04-21):
+
+        00:15.3 pref a0000000-b07fffff [32-bit]   ← bridge SB900 riser, func 3!
+        23:00.0 pref a0000000-afffffff [32-bit]   ← upstream 4fa0
+        24:01.0 pref a0000000-afffffff [32-bit]   ← downstream 4fa4
+        25:00.0 Arc A770 Region 2: 256M           ← ReBAR not run
+
+ROOT CAUSE
+    ResizeIntelGpuBars' outer scan was doing
+        EFI_PCI_ADDRESS(0, rootDev, 0, 0)        ← HARDCODED func = 0
+    So 00:15.3 (func 3) was never visited. The Arc on the riser was
+    invisible to the chain-rewrite. This is the SAME bug v7 fixed in
+    Apply990FxBridgeQuirkAll ("the SB900 root port lives at 00:15.3
+    (function 3), NOT function 0") and that v9.4 fixed in
+    ResizeAmdGpuBars — but ResizeIntelGpuBars was left behind.
+
+FIX
+    Outer loop becomes (rootDev 0..31) × (rootFunc 0..7) with an
+    early-exit on standard multi-function. Identical pattern to
+    v9.4's AMD path. Nothing else needed: the chain-rewrite (root
+    port + intermediate switches) already writes pref base/limit
+    with bit 0 = 1 + upper32, so once the Arc is reached via
+    00:15.3, the 3 bridges (00:15.3, 23:00.0, 24:01.0) move from
+    32-bit pref [a0000000-…] to 64-bit pref
+    [0x1800000000-0x1BFFFFFFFF] automatically.
+
+    Target unchanged: ARC_BAR2_TARGET = 0x1800000000 (16 GB).
+
+CHANGES vs v9.4
+    * ResizeIntelGpuBars: outer scan now func 0..7 with
+      multi-function.
+    * gpuProcessed becomes function-scoped (stop at first match).
+    * Banner "v9.4 LOG" → "v9.5 LOG".
+    * Marker flush: "[DC] ResizeIntelGpuBars v9.5 enter" + new OK
+      log.
+
+
+
+================================================================================
+v9.4  —  2026-04-21
+W9170 discovery becomes bus-agnostic
+================================================================================
+
+PROBLEM IN v9.3
+    ResizeAmdGpuBars was hardcoded to bridge 00:15.3 with DID 0x43A3
+    (SB900 = riser). The post-v9.3 bench
+    (bench_results_20260420_v9.3/RESULTS.md) showed that the W9170
+    on the riser hits the 16 GB GART limit and crashes on models >
+    16 GB (gemma-31B HANG, non-recoverable ring timeout). The
+    physical solution is to mount the W9170 directly on a
+    motherboard slot (NB bridge, different DID) and put the Arc on
+    the riser (the Arc tolerates reduced bandwidth because it is
+    used only as a compute GPU).
+
+FIX
+    ResizeAmdGpuBars now discovers the W9170 the way
+    ResizeIntelGpuBars discovers the Arc — scan all root ports on
+    bus 0 and look for endpoint 1002:67A0 (Hawaii XT GL) underneath.
+    Position-independent: works whether the W9170 is on the riser
+    (00:15.3 / 43A3) or on an NB slot (00:0b.0 / 5A1F or
+    00:0d.0 / 5A1F).
+
+TARGET ADDRESSES (UNCHANGED FROM v9.3)
+    W9170_BAR0_TARGET  = 0x1C00000000
+    W9170_BAR2_TARGET  = 0x2000000000
+    W9170_BRIDGE_BASE  = 0x1C00000000
+    W9170_BRIDGE_LIMIT = 0x2000FFFFFF
+
+CHANGES vs v9.3
+    * ResizeAmdGpuBars: discovery loop = root-port scan +
+      endpoint-VID:DID match (1002:67A0) instead of bridge-VID:DID
+      match (1002:43A3).
+    * pciFindExtCapEcam + pciReadDwordEcam + pciWriteDwordEcam use
+      epDev (dynamically discovered) instead of a hardcoded 0.
+    * Log [DE] bridge hardcoded "00:15.3" → dynamic log with
+      bridgeDev / bridgeFunc.
+    * Banner: "v9.3 LOG" → "v9.4 LOG".
+    * Marker flush: "OK v9.3" → "OK v9.4".
+
+
+
+================================================================================
+v9.3  —  2026-04-20
+Fix v9.2 placement bugs + expand M2MX to 256 GB
+================================================================================
+
+PRINCIPLE (UNCHANGED FROM v9.2)
+    From memory/collaboration_principles.md §3:
+    The module decides where each device goes. No auto-bump cursors,
+    no delegation to BIOS / kernel: known-device target addresses
+    are hard-coded. Where the BIOS works (Tesla P100) we don't
+    touch; where it fails (Arc, W9170) we control everything,
+    deterministically.
+
+RETROSPECTIVE — 3 v9.2 BUGS FIXED HERE
+
+    BUG-A: ARC_BAR0_TARGET = 0xC00000000 collided with P100 #1's
+           BAR3 (32 MB pref64, which the BIOS lands in that
+           16-GB-aligned slot). The "Arc fits in the gap between the
+           P100s" idea was wrong: there is no gap; the first Tesla's
+           32 MB BAR3 occupies an entire 16-GB-aligned slot.
+
+    BUG-B: W9170_BAR0_TARGET = 0x1400000000 collided with P100 #2's
+           BAR3 (same dynamics).
+
+    BUG-C: The Arc's VRAM is BAR2 (index 2), not BAR0. The
+           "if (barIndex != 0) continue" filter in
+           ResizeIntelGpuBars was skipping the VRAM. Result: the
+           REBAR_CTRL was written (BAR decode 16 GB) but the BAR
+           address was not reprogrammed and the bridge chain was
+           not widened → i915 "Failed to setup region(-6) type=1"
+           (black screen).
+
+MMIO64 LAYOUT v9.3 (M2MX 0 - 0x3FFFFFFFFF = 256 GB, EXPANDED VIA PatchM2MX v2)
+
+    0x800000000  - 0xBFFFFFFFF    P100 #1 BAR1 16 GB   [BIOS]
+    0xC00000000  - 0xC01FFFFFF    P100 #1 BAR3 32 MB   [BIOS]
+    0x1000000000 - 0x13FFFFFFFF   P100 #2 BAR1 16 GB   [BIOS]
+    0x1400000000 - 0x1401FFFFFF   P100 #2 BAR3 32 MB   [BIOS]
+    0x1800000000 - 0x1BFFFFFFFF   Arc A770 BAR2 16 GB  [OURS — ARC_BAR2_TARGET]
+    0x1C00000000 - 0x1FFFFFFFFF   W9170 BAR0   16 GB   [OURS — W9170_BAR0_TARGET]
+    0x2000000000 - 0x20007FFFFF   W9170 BAR2    8 MB   [OURS — W9170_BAR2_TARGET]
+    0x2000800000 - 0x3FFFFFFFFF   spare ~126 GB        [free]
+
+    Arc BAR2 at 0x1800000000 is where the BIOS already places it
+    natively; our ResizeIntelGpuBars only resizes the BAR from
+    256 MB to 16 GB and re-declares the range in the bridge chain.
+    The W9170 goes at the head of the new space opened by the
+    M2MX 256 GB expansion.
+
+CHANGES vs v9.2
+    * Constant rename: ARC_BAR0_TARGET (0xC00000000) →
+      ARC_BAR2_TARGET (0x1800000000). Name and address both fixed.
+    * W9170_BAR0_TARGET: 0x1400000000 → 0x1C00000000 (out of
+      collision range).
+    * W9170_BAR2_TARGET: 0x1800000000 → 0x2000000000 (in the
+      M2MX v2 space).
+    * W9170_BRIDGE_BASE / LIMIT:
+          [0x1400000000, 0x1800FFFFFF] →
+          [0x1C00000000, 0x2000FFFFFF].
+    * ResizeIntelGpuBars filter "barIndex != 0" → "barIndex != 2".
+      Target written to BAR2 (offset 0x18 / 0x1C), not BAR0
+      (0x10 / 0x14).
+    * Banner logger: "v9.2 LOG" → "v9.3 LOG".
+    * Marker flush: "OK v9.2" → "OK v9.3".
+
+EXTERNAL DEPENDENCY
+    * PatchM2MX.txt v2 must be applied to the BIOS (expands the
+      ACPI QWordMemory Max from 128 GB to 256 GB, Length from
+      124 GB to 252 GB).
+    * NB D18F1 Window 1 already programmed to 0..256 GB in
+      ProgramCpuMmioWindow (aligned with the new ACPI range).
+
+
+
+================================================================================
+v9.2  —  2026-04-20
+Explicit placement (BUG-A / B / C retrospective)
+================================================================================
+
+WHAT
+    Introduced the "we decide" placement principle. See v9.3 above
+    for the retrospective on the bugs (BUG-A / B / C) introduced
+    here and fixed in v9.3.
+
+CHANGES
+    * Banner: "v9.1 LOG" → "v9.2 LOG".
+
+
+
+================================================================================
+v9.1  —  2026-04-20
+Apply990FxBridgeQuirkAll: stop zeroing upper32
+================================================================================
+
+TARGETED CHANGE vs v9
+    * Apply990FxBridgeQuirkAll on 5a16 / 5a1c: NO LONGER zeroes
+      upper32 (0x28 / 0x2C). Only sets bit 0 = 1 on Base / Limit
+      (declares pref 64-bit).
+
+REASON FOR THE v9 MISBEHAVIOR
+    Writing 0 to upper32 was crushing the pref window below 4 GB,
+    causing "can't claim" failures on the 64-bit BARs > 4 GB of the
+    P100 / Arc when the kernel booted without `pci=realloc`. With
+    `pci=realloc` the kernel reallocated, but P100 #1 disappeared
+    (its 32 MB BAR2 falling outside the bridge window).
+
+FIX
+    Preserve the upper32 values that the BIOS / AGESA (or
+    ResizeIntelGpuBars for the Arc chain) have already written
+    correctly.
+
+OTHER
+    * Banner logger: "v9 LOG" → "v9.1 LOG".
+
+
+
+================================================================================
+v9  —  2026-04-20
+New ResizeAmdGpuBars + diagnostic beep melody
+================================================================================
+
+CHANGES vs v8
+
+    * REFACTOR Apply990FxBridgeQuirkAll: REMOVED the v8 branch for
+      DID 0x43A3 (which wrote base/limit/upper32 on bridge 00:15.3).
+      Reason: the kernel was decoding the v8 window as
+      0x1440000000-0x1BBFFFFFFF (NOT 0x1400000000-0x1BFFFFFFFF as
+      intended), conflict with Arc at 0x1800000000, fallback
+      384 MB, W9170 BAR0 stuck at 256 MB.
+
+    * NEW ResizeAmdGpuBars(): single owner of the 00:15.3 window +
+      the W9170 ReBAR. Called in OnExitBootServices AFTER
+      ResizeIntelGpuBars, when gNextPrefAddr = 0x1C00000000 (end of
+      Arc). It programs:
+          - bridge 00:15.3 pref64 window →
+            0x1C00000000-0x1FFFFFFFFF (16 GB)
+          - REBAR_CTRL (cap + 0x208) size index 14 (16 GB) on the
+            W9170 endpoint
+          - BAR0 of the W9170 → 0x1C00000000 (64-bit pref)
+      Target: FirePro W9170 DID = 0x67A0 at bus 0x23 (via the
+      SB900 riser).
+
+    * Diagnostic beep melody (behind #define ENABLE_BEEP_MELODY 1):
+      "2 short . 2 long . 2 short" at 880 Hz via PIT 8253 + gate
+      port 0x61, called BEFORE POST 0xFC (ear+LED sync). Useful on
+      systems without video output (e.g. the Arc that loses display
+      when its BAR moves > 4 GB).
+
+    * New POST codes: 0xDE (AMD resize entry) and 0xDF
+      (success / fail branch).
+
+    * Banner logger: "v8 LOG" → "v9 LOG".
+
+
+
+================================================================================
+v8  —  2026-04-20
+[REMOVED IN v9 — kept here for history]
+================================================================================
+
+CHANGES vs v7
+    * Apply990FxBridgeQuirkAll: extra branch on DID 0x43A3
+      (SB900 00:15.3) writing base/limit/upper32 pointing to
+      0x1400000000-0x1BFFFFFFFF.
+      Problem (Case C): the window was decoded as 0x1440000000,
+      conflicting with the Arc, falling back to 384 MB, with the
+      W9170 BAR0 stuck at 256 MB.
+    * Banner logger: "v7 LOG" → "v8 LOG".
+
+NOTE
+    This branch is intentionally inert in v9+; the W9170 path
+    moved to ResizeAmdGpuBars there.
+
+
+
+================================================================================
+v7  —  2026-04-20
+Module rename to "990fxOrchestrator" + SB900 root port whitelist
+================================================================================
+
+CHANGES vs v6
+    * Renamed module to "990fxOrchestrator" (visible in UEFITool /
+      MMTool).
+    * Bridge whitelist: added DID 0x43A3 (SB900 SB root port
+      00:15.3) → enables FirePro W9100 support on the PCIe2 x1
+      riser via the southbridge.
+    * Apply990FxBridgeQuirkAll: loop extended to all functions
+      (0..7). Reason: the SB900 root port lives at 00:15.3
+      (function 3), and the previous loop was function-0 only — it
+      never visited the function-3 device, so the riser was never
+      quirked.
+    * Banner logger: "v6 LOG" → "v7 LOG".
+
+
+################################################################################
+##                                                                            ##
+##                       END OF PATCH NOTES                                   ##
+##                       Last release: v0.5.5 (2026-05-02)                    ##
+##                                                                            ##
+################################################################################
