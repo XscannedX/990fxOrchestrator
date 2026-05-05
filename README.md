@@ -7,7 +7,7 @@ with AMD FX (Family 15h) CPUs, running the official **Rev 1.1 BIOS** as the
 modification base.
 (see also upstream notes for updates)
 
-This is a heavily extended fork of [xCuri0/ReBarUEFI][upstream]. See
+This is an independent heavily extended fork inspired and started from [xCuri0/ReBarUEFI][upstream]. See
 [Dedication](#dedication--why-this-exists) below for why this project is
 dedicated to that work.
 
